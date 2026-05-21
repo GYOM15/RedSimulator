@@ -1,0 +1,91 @@
+{
+  "target": "http://localhost:3000",
+  "scan_timestamp": "2025-01-15T10:30:00Z",
+  "open_ports": [
+    {"port": 3000, "service": "http", "version": "Node.js Express 4.17.1"}
+  ],
+  "endpoints": [
+    {
+      "path": "/rest/user/login",
+      "method": "POST",
+      "status_code": 200,
+      "auth_required": false,
+      "parameters": ["email", "password"]
+    },
+    {
+      "path": "/api/Users",
+      "method": "GET",
+      "status_code": 200,
+      "auth_required": false,
+      "parameters": []
+    },
+    {
+      "path": "/api/Feedbacks",
+      "method": "POST",
+      "status_code": 201,
+      "auth_required": false,
+      "parameters": ["comment", "rating"]
+    },
+    {
+      "path": "/rest/basket/1",
+      "method": "GET",
+      "status_code": 200,
+      "auth_required": true,
+      "parameters": []
+    },
+    {
+      "path": "/api/Products",
+      "method": "GET",
+      "status_code": 200,
+      "auth_required": false,
+      "parameters": []
+    },
+    {
+      "path": "/rest/admin/application-configuration",
+      "method": "GET",
+      "status_code": 200,
+      "auth_required": false,
+      "parameters": []
+    },
+    {
+      "path": "/api/SecurityQuestions",
+      "method": "GET",
+      "status_code": 200,
+      "auth_required": false,
+      "parameters": []
+    }
+  ],
+  "technologies": ["Node.js", "Express", "Angular", "SQLite"],
+  "headers": {
+    "missing_security_headers": [
+      "Content-Security-Policy",
+      "X-Frame-Options",
+      "Strict-Transport-Security"
+    ],
+    "server_info_leaked": true
+  },
+  "forms": [
+    {
+      "endpoint": "/rest/user/login",
+      "fields": [
+        {"name": "email", "type": "email"},
+        {"name": "password", "type": "password"}
+      ],
+      "method": "POST",
+      "action": "/rest/user/login",
+      "source": "dynamic"
+    },
+    {
+      "endpoint": "/api/Feedbacks",
+      "fields": [
+        {"name": "comment", "type": "textarea"},
+        {"name": "rating", "type": "number"},
+        {"name": "captchaId", "type": "hidden"},
+        {"name": "captcha", "type": "text"}
+      ],
+      "method": "POST",
+      "action": "/api/Feedbacks",
+      "source": "dynamic"
+    }
+  ]
+}

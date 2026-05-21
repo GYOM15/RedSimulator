@@ -1,0 +1,80 @@
+{
+  "scan_id": "scan-001",
+  "generated_at": "2025-01-15T10:35:00Z",
+  "vectors": [
+    {
+      "id": "VEC-001",
+      "attack_type": "sqli",
+      "target_endpoint": "/rest/user/login",
+      "target_fields": ["email", "password"],
+      "severity": "CRITICAL",
+      "owasp_ref": "A03:2021-Injection",
+      "rationale": [
+        "Formulaire de login detecte avec champs email/password",
+        "Backend SQLite detecte dans les technologies",
+        "Endpoint accessible sans authentification",
+        "Eleve de HIGH a CRITICAL par regle de chainage"
+      ],
+      "base_payloads": [
+        "' OR 1=1--",
+        "admin'--",
+        "' UNION SELECT * FROM Users--"
+      ]
+    },
+    {
+      "id": "VEC-002",
+      "attack_type": "xss",
+      "target_endpoint": "/api/Feedbacks",
+      "target_fields": ["comment"],
+      "severity": "MEDIUM",
+      "owasp_ref": "A03:2021-Injection",
+      "rationale": [
+        "Endpoint POST detecte (/api/Feedbacks)",
+        "Header Content-Security-Policy manquant",
+        "Champ comment accepte du texte libre"
+      ],
+      "base_payloads": [
+        "<script>alert('xss')</script>",
+        "<img src=x onerror=alert(1)>",
+        "<svg onload=alert('xss')>"
+      ]
+    },
+    {
+      "id": "VEC-003",
+      "attack_type": "idor",
+      "target_endpoint": "/rest/basket/1",
+      "target_fields": [],
+      "severity": "HIGH",
+      "owasp_ref": "A01:2021-Broken Access Control",
+      "rationale": [
+        "Endpoint avec identifiant numerique dans l'URL",
+        "Potentiel acces a des paniers d'autres utilisateurs",
+        "Authentification requise mais ID previsible"
+      ],
+      "base_payloads": [
+        "/rest/basket/2",
+        "/rest/basket/3",
+        "/rest/basket/0"
+      ]
+    },
+    {
+      "id": "VEC-004",
+      "attack_type": "info_disclosure",
+      "target_endpoint": "/rest/admin/application-configuration",
+      "target_fields": [],
+      "severity": "LOW",
+      "owasp_ref": "A05:2021-Security Misconfiguration",
+      "rationale": [
+        "Endpoint admin accessible sans authentification",
+        "Headers de securite manquants",
+        "Information sur le serveur exposee"
+      ],
+      "base_payloads": []
+    }
+  ],
+  "rules_fired": [
+    "SQL_INJECTION",
+    "SQL_INJECTION_CRITICAL",
+    "XSS_REFLECTED"
+  ]
+}

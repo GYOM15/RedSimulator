@@ -1,0 +1,27 @@
+services:
+  juiceshop:
+    image: bkimminich/juice-shop
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=unsafe
+    restart: unless-stopped
+
+  chromadb:
+    image: chromadb/chroma
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    restart: unless-stopped
+
+  recon-tools:
+    build:
+      context: .
+      dockerfile: docker/recon-tools.Dockerfile
+    ports:
+      - "8081:8081"
+    restart: unless-stopped
+
+volumes:
+  chroma_data:

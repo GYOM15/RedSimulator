@@ -1,0 +1,76 @@
+{
+  "rules": [
+    {
+      "id": "SQL_INJECTION",
+      "name": "SQL Injection Detection",
+      "description": "Detecte les possibilites d'injection SQL via les formulaires",
+      "owasp_ref": "A03:2021-Injection",
+      "conditions": ["form_exists", "sql_technology_detected"],
+      "severity": "HIGH",
+      "implemented": true
+    },
+    {
+      "id": "SQL_INJECTION_CRITICAL",
+      "name": "SQL Injection Critical Elevation",
+      "description": "Eleve la severite SQLi a CRITICAL quand l'endpoint n'a pas d'authentification",
+      "owasp_ref": "A03:2021-Injection",
+      "conditions": ["sqli_vector_exists", "endpoint_no_auth"],
+      "severity": "CRITICAL",
+      "implemented": true
+    },
+    {
+      "id": "XSS_REFLECTED",
+      "name": "XSS Reflected Detection",
+      "description": "Detecte les possibilites de XSS reflete via endpoints POST sans CSP",
+      "owasp_ref": "A03:2021-Injection",
+      "conditions": ["post_endpoint_exists", "missing_csp_header"],
+      "severity": "MEDIUM",
+      "implemented": true
+    },
+    {
+      "id": "IDOR",
+      "name": "Insecure Direct Object Reference",
+      "description": "Detecte les endpoints avec identifiants numeriques accessibles",
+      "owasp_ref": "A01:2021-Broken Access Control",
+      "conditions": ["endpoint_with_numeric_id", "auth_required"],
+      "severity": "HIGH",
+      "implemented": false
+    },
+    {
+      "id": "PATH_TRAVERSAL",
+      "name": "Path Traversal Detection",
+      "description": "Detecte les parametres de fichier vulnerables au path traversal",
+      "owasp_ref": "A01:2021-Broken Access Control",
+      "conditions": ["file_parameter_detected"],
+      "severity": "MEDIUM",
+      "implemented": false
+    },
+    {
+      "id": "AUTH_BYPASS",
+      "name": "Authentication Bypass",
+      "description": "Detecte les endpoints admin accessibles sans authentification",
+      "owasp_ref": "A07:2021-Identification and Authentication Failures",
+      "conditions": ["admin_endpoint", "no_auth_required"],
+      "severity": "HIGH",
+      "implemented": false
+    },
+    {
+      "id": "INFO_DISCLOSURE",
+      "name": "Information Disclosure",
+      "description": "Detecte les fuites d'information via headers ou endpoints exposes",
+      "owasp_ref": "A05:2021-Security Misconfiguration",
+      "conditions": ["server_info_leaked", "missing_security_headers"],
+      "severity": "LOW",
+      "implemented": false
+    },
+    {
+      "id": "CHAIN_BYPASS_EXFIL",
+      "name": "Chained Attack: Bypass + Exfiltration",
+      "description": "Combine auth_bypass et sqli pour un scenario d'exfiltration critique",
+      "owasp_ref": "A01:2021-Broken Access Control",
+      "conditions": ["auth_bypass_exists", "sqli_exists"],
+      "severity": "CRITICAL",
+      "implemented": false
+    }
+  ]
+}

