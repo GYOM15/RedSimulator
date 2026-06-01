@@ -7,12 +7,10 @@ et produisent les bons vecteurs d'attaque.
 import json
 from pathlib import Path
 
-import pytest
-
-from src.models import ScanResult
 from src.expert.engine import ExpertEngine
-from src.expert.facts import Fact, scan_result_to_facts
+from src.expert.facts import scan_result_to_facts
 from src.expert.rules import get_all_rules
+from src.models import ScanResult
 
 FIXTURES_DIR = Path(__file__).parent.parent / "data" / "fixtures"
 
@@ -62,11 +60,11 @@ class TestExpertEngine:
         return engine, plan
 
     def test_rules_fire(self):
-        engine, plan = self._run_engine()
+        _engine, plan = self._run_engine()
         assert len(plan.rules_fired) >= 3
 
     def test_sql_injection_fires_first(self):
-        engine, plan = self._run_engine()
+        _engine, plan = self._run_engine()
         assert "SQL_INJECTION" in plan.rules_fired
         # SQL_INJECTION doit s'activer avant SQL_INJECTION_CRITICAL
         idx_sqli = plan.rules_fired.index("SQL_INJECTION")
@@ -74,18 +72,19 @@ class TestExpertEngine:
         assert idx_sqli < idx_critical, "SQL_INJECTION doit s'activer avant SQL_INJECTION_CRITICAL"
 
     def test_xss_fires(self):
-        engine, plan = self._run_engine()
+        _engine, plan = self._run_engine()
         assert "XSS_REFLECTED" in plan.rules_fired
 
     def test_chaining_produces_critical(self):
         """Verifie que le chainage eleve la severite a CRITICAL."""
-        engine, plan = self._run_engine()
+        _engine, plan = self._run_engine()
         critical_vectors = [
-            v for v in plan.vectors
-            if (v.severity.value if hasattr(v.severity, 'value') else v.severity) == "CRITICAL"
+            v
+            for v in plan.vectors
+            if (v.severity.value if hasattr(v.severity, "value") else v.severity) == "CRITICAL"
         ]
         assert len(critical_vectors) >= 1, "Au moins un vecteur doit etre CRITICAL apres chainage"
 
     def test_attack_vectors_generated(self):
-        engine, plan = self._run_engine()
+        _engine, plan = self._run_engine()
         assert len(plan.vectors) >= 2  # Au moins SQLi + XSS

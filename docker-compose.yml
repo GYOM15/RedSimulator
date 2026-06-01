@@ -6,6 +6,12 @@ services:
     environment:
       - NODE_ENV=unsafe
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   chromadb:
     image: chromadb/chroma
@@ -14,7 +20,13 @@ services:
     volumes:
       - chroma_data:/chroma/chroma
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/heartbeat || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
+  # recon-tools does not depend on other services
   recon-tools:
     build:
       context: .
@@ -22,6 +34,35 @@ services:
     ports:
       - "8081:8081"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  redsimulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      juiceshop:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    environment:
+      - ANTHROPIC_API_KEY
+      - TARGET_URL=http://juiceshop:3000
+      - RS_CHROMADB_URL=http://chromadb:8000
+      - RS_RECON_SERVICE_URL=http://recon-tools:8081
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   chroma_data:

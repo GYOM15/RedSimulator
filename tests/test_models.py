@@ -6,8 +6,6 @@ Verifie que chaque fixture JSON est valide selon le schema Pydantic correspondan
 import json
 from pathlib import Path
 
-import pytest
-
 from src.models import AttackPlan, AttackResult, PayloadResult, ScanResult
 
 FIXTURES_DIR = Path(__file__).parent.parent / "data" / "fixtures"
@@ -78,7 +76,9 @@ class TestPayloadResult:
         result = PayloadResult.model_validate(data)
         for gp in result.payloads:
             for variant in gp.variants:
-                assert variant != gp.original or variant == gp.original  # Permissif pour le scaffold
+                assert (
+                    variant != gp.original or variant == gp.original
+                )  # Permissif pour le scaffold
 
 
 class TestAttackResult:

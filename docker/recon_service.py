@@ -27,9 +27,13 @@ WORDLISTS_DIR = "/app/wordlists"
 def health():
     """Health check avec versions des outils."""
     tools = {}
-    for tool, cmd in [("nmap", "nmap --version"), ("ffuf", "ffuf -V"), ("subfinder", "subfinder -version")]:
+    for tool, cmd in [
+        ("nmap", "nmap --version"),
+        ("ffuf", "ffuf -V"),
+        ("subfinder", "subfinder -version"),
+    ]:
         try:
-            result = subprocess.run(cmd.split(), capture_output=True, text=True, timeout=5)
+            subprocess.run(cmd.split(), capture_output=True, text=True, timeout=5)
             tools[tool] = "disponible"
         except Exception:
             tools[tool] = "indisponible"
@@ -53,14 +57,17 @@ def scan():
         results = []
         if host in nm.all_hosts():
             for proto in nm[host].all_protocols():
-                for port in nm[host][proto].keys():
+                for port in nm[host][proto]:
                     state = nm[host][proto][port]
                     if state["state"] == "open":
-                        results.append({
-                            "port": port,
-                            "service": state.get("name", "unknown"),
-                            "version": f"{state.get('product', '')} {state.get('version', '')}".strip() or None,
-                        })
+                        results.append(
+                            {
+                                "port": port,
+                                "service": state.get("name", "unknown"),
+                                "version": f"{state.get('product', '')} {state.get('version', '')}".strip()
+                                or None,
+                            }
+                        )
 
         return jsonify({"host": host, "results": results})
 
@@ -81,7 +88,7 @@ def bruteforce():
     wordlist_path = os.path.join(WORDLISTS_DIR, f"{wordlist}.txt")
     if not os.path.exists(wordlist_path):
         available = []
-        for root, dirs, files in os.walk(WORDLISTS_DIR):
+        for root, _dirs, files in os.walk(WORDLISTS_DIR):
             for f in files:
                 if f.endswith(".txt"):
                     rel = os.path.relpath(os.path.join(root, f), WORDLISTS_DIR)
@@ -96,18 +103,25 @@ def bruteforce():
 
         cmd = [
             "ffuf",
-            "-u", target_url,
-            "-w", wordlist_path,
-            "-o", tmp_path,
-            "-of", "json",
-            "-ac",                    # Auto-calibration soft-404
-            "-t", "20",               # 20 threads (dans Docker c'est safe)
-            "-timeout", "3",
-            "-mc", "200,201,301,302,401,403",
-            "-s",                     # Silencieux
+            "-u",
+            target_url,
+            "-w",
+            wordlist_path,
+            "-o",
+            tmp_path,
+            "-of",
+            "json",
+            "-ac",  # Auto-calibration soft-404
+            "-t",
+            "20",  # 20 threads (dans Docker c'est safe)
+            "-timeout",
+            "3",
+            "-mc",
+            "200,201,301,302,401,403",
+            "-s",  # Silencieux
         ]
 
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
 
         results = []
         if os.path.exists(tmp_path):
@@ -116,14 +130,16 @@ def bruteforce():
             os.unlink(tmp_path)
 
             for result in data.get("results", []):
-                results.append({
-                    "path": f"/{result.get('input', {}).get('FUZZ', '')}",
-                    "status_code": result.get("status", 0),
-                    "content_length": result.get("length", 0),
-                    "content_type": result.get("content-type", ""),
-                    "words": result.get("words", 0),
-                    "lines": result.get("lines", 0),
-                })
+                results.append(
+                    {
+                        "path": f"/{result.get('input', {}).get('FUZZ', '')}",
+                        "status_code": result.get("status", 0),
+                        "content_length": result.get("length", 0),
+                        "content_type": result.get("content-type", ""),
+                        "words": result.get("words", 0),
+                        "lines": result.get("lines", 0),
+                    }
+                )
 
         return jsonify({"url": url, "wordlist": wordlist, "results": results})
 

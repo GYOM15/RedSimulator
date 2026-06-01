@@ -4,18 +4,17 @@ Verifie que le VAE compile, que l'entrainement reduit la loss,
 et que les variantes generees sont differentes du payload de base.
 """
 
-import pytest
 import torch
 
+from src.generator.generate import generate_variants
 from src.generator.vae_model import (
-    PayloadVAE,
-    encode_payload,
-    decode_indices,
-    vae_loss,
     MAX_LEN,
     VOCAB_SIZE,
+    PayloadVAE,
+    decode_indices,
+    encode_payload,
+    vae_loss,
 )
-from src.generator.generate import generate_variants
 
 
 class TestVAEModel:

@@ -8,9 +8,8 @@ Endpoints:
     GET /health                          — Health check
 """
 
-import json
-from flask import Flask, request, jsonify
 import nmap
+from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 
@@ -41,16 +40,18 @@ def scan():
         results = []
         for h in nm.all_hosts():
             for proto in nm[h].all_protocols():
-                for port in nm[h][proto].keys():
+                for port in nm[h][proto]:
                     state = nm[h][proto][port]
                     if state["state"] == "open":
                         version = f"{state.get('product', '')} {state.get('version', '')}".strip()
-                        results.append({
-                            "port": port,
-                            "service": state.get("name", "unknown"),
-                            "version": version or None,
-                            "state": state["state"],
-                        })
+                        results.append(
+                            {
+                                "port": port,
+                                "service": state.get("name", "unknown"),
+                                "version": version or None,
+                                "state": state["state"],
+                            }
+                        )
 
         return jsonify({"host": host, "ports_scanned": ports, "results": results})
 
