@@ -14,6 +14,7 @@ from src.infra.config import settings
 from src.infra.logging import get_logger, setup_logging
 from src.models import AttackPlan, AttackResult, ScanResult
 
+from .pdf_export import export_pdf
 from .rag import ask_report, index_report
 from .report_generator import generate_report
 
@@ -29,6 +30,11 @@ results = AttackResult.model_validate(json.loads((data_dir / "attack_result.json
 # Generer le rapport
 report = generate_report(scan, plan, results)
 logger.info("Rapport genere:\n%s", report)
+
+# Exporter le rapport en PDF
+pdf_path = export_pdf(report, data_dir / "reports" / "report.pdf")
+if pdf_path:
+    logger.info("PDF exported to %s", pdf_path)
 
 # Indexer avec toutes les donnees (active le knowledge graph)
 logger.info("Test du chatbot RAG (mode complet : vector + knowledge graph)")
