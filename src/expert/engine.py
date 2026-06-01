@@ -11,10 +11,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
+from src.infra.decorators import logged, timed
+from src.infra.exceptions import RuleError
+from src.infra.logging import get_logger
 from src.models import AttackPlan, AttackVector
 from src.models.attack_plan import Severity
 
 from .facts import Fact
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -52,15 +57,17 @@ class ExpertEngine:
     def inject_facts(self, facts: list[Fact]) -> None:
         """Ajoute des faits a la memoire de travail."""
         self.working_memory.extend(facts)
-        print(f"\n[ENGINE] {len(facts)} faits injectes dans la memoire de travail")
+        logger.info("%d faits injectes dans la memoire de travail", len(facts))
 
     def load_rules(self, rules: list[Rule]) -> None:
         """Charge les regles triees par priorite."""
         self.rules = sorted(rules, key=lambda r: r.priority)
-        print(f"[ENGINE] {len(rules)} regles chargees:")
+        logger.info("%d regles chargees:", len(rules))
         for r in self.rules:
-            print(f"  - {r.name} (priorite={r.priority})")
+            logger.info("  - %s (priorite=%d)", r.name, r.priority)
 
+    @logged
+    @timed
     def run(self, scan_id: str = "scan-001") -> AttackPlan:
         """Execute le chainage avant et produit un AttackPlan.
 
@@ -73,10 +80,10 @@ class ExpertEngine:
         Returns:
             AttackPlan contenant les vecteurs d'attaque identifies.
         """
-        print(f"\n{'='*60}")
-        print("[ENGINE] Demarrage du chainage avant")
-        print(f"{'='*60}")
-        print(f"[ENGINE] Memoire initiale: {len(self.working_memory)} faits")
+        logger.info("=" * 60)
+        logger.info("Demarrage du chainage avant")
+        logger.info("=" * 60)
+        logger.info("Memoire initiale: %d faits", len(self.working_memory))
 
         iteration = 0
         changed = True
@@ -84,19 +91,33 @@ class ExpertEngine:
         while changed:
             changed = False
             iteration += 1
-            print(f"\n--- Iteration {iteration} ---")
+            logger.info("--- Iteration %d ---", iteration)
 
             for rule in self.rules:
                 if rule.fired:
                     continue
 
-                if rule.conditions(self.working_memory):
-                    print(f"  [FIRE] Regle '{rule.name}' activee!")
-                    new_facts = rule.action(self.working_memory)
+                try:
+                    conditions_met = rule.conditions(self.working_memory)
+                except Exception as exc:
+                    raise RuleError(
+                        f"Erreur lors de l'evaluation de la regle '{rule.name}': {exc}",
+                        rule_name=rule.name,
+                    ) from exc
+
+                if conditions_met:
+                    logger.info("  [FIRE] Regle '%s' activee!", rule.name)
+                    try:
+                        new_facts = rule.action(self.working_memory)
+                    except Exception as exc:
+                        raise RuleError(
+                            f"Erreur lors de l'execution de la regle '{rule.name}': {exc}",
+                            rule_name=rule.name,
+                        ) from exc
 
                     if new_facts:
                         for fact in new_facts:
-                            print(f"    + Nouveau fait: {fact}")
+                            logger.info("    + Nouveau fait: %s", fact)
                             self.working_memory.append(fact)
 
                         # Extraire les vecteurs d'attaque et les elevations
@@ -104,9 +125,11 @@ class ExpertEngine:
                             if fact.type == "attack_vector":
                                 vector = AttackVector(**fact.attributes)
                                 self.attack_vectors.append(vector)
-                                print(
-                                    f"    >> Vecteur d'attaque: {vector.id} "
-                                    f"({vector.attack_type.value}, {vector.severity.value})"
+                                logger.info(
+                                    "    >> Vecteur d'attaque: %s (%s, %s)",
+                                    vector.id,
+                                    vector.attack_type.value,
+                                    vector.severity.value,
                                 )
                             elif fact.type == "severity_elevation":
                                 # Mettre a jour la severite des vecteurs existants
@@ -120,13 +143,13 @@ class ExpertEngine:
                     self.fired_rules.append(rule.name)
                     changed = True
                 else:
-                    print(f"  [SKIP] Regle '{rule.name}' — conditions non remplies")
+                    logger.info("  [SKIP] Regle '%s' — conditions non remplies", rule.name)
 
-        print(f"\n{'='*60}")
-        print(f"[ENGINE] Chainage termine apres {iteration} iterations")
-        print(f"[ENGINE] Regles activees: {self.fired_rules}")
-        print(f"[ENGINE] Vecteurs d'attaque: {len(self.attack_vectors)}")
-        print(f"{'='*60}")
+        logger.info("=" * 60)
+        logger.info("Chainage termine apres %d iterations", iteration)
+        logger.info("Regles activees: %s", self.fired_rules)
+        logger.info("Vecteurs d'attaque: %d", len(self.attack_vectors))
+        logger.info("=" * 60)
 
         return AttackPlan(
             scan_id=scan_id,
@@ -159,5 +182,5 @@ if __name__ == "__main__":
     engine.load_rules(get_all_rules())
     plan = engine.run()
 
-    print("\n=== Attack Plan ===")
-    print(plan.model_dump_json(indent=2))
+    logger.info("=== Attack Plan ===")
+    logger.info(plan.model_dump_json(indent=2))

@@ -14,6 +14,10 @@ from pathlib import Path
 
 import requests
 
+from src.infra.config import settings
+from src.infra.decorators import logged, retry, timed
+from src.infra.exceptions import AttackError
+from src.infra.logging import get_logger
 from src.models import (
     AttackPlan,
     AttackResult,
@@ -22,17 +26,21 @@ from src.models import (
     SingleAttackResult,
 )
 
+logger = get_logger(__name__)
+
 
 class AttackExecutor:
     """Execute les attaques du plan contre la cible.
 
-    Rate-limited a 0.2s entre chaque requete pour ne pas surcharger la cible.
+    Rate-limited selon ``settings.attack_delay`` entre chaque requete
+    pour ne pas surcharger la cible.
     """
 
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
-        self.delay = 0.2  # Secondes entre chaque requete
+        self.delay = settings.attack_delay
 
+    @retry(max_attempts=2, base_delay=0.5, exceptions=(requests.ConnectionError, requests.Timeout))
     def _test_sqli(self, vector: AttackVector, payload: str) -> SingleAttackResult:
         """Teste une injection SQL sur l'endpoint cible.
 
@@ -47,7 +55,7 @@ class AttackExecutor:
             Resultat de l'attaque.
         """
         url = f"{self.base_url}{vector.target_endpoint}"
-        print(f"  [SQLI] {url} <- {payload}")
+        logger.debug("[SQLI] %s <- %s", url, payload)
 
         # Construire le body avec le payload dans chaque champ
         body = {}
@@ -81,11 +89,11 @@ class AttackExecutor:
             )
 
             status = "SUCCES" if success else "ECHEC"
-            print(f"    -> {resp.status_code} | {status} | {detection}")
+            logger.debug("-> %s | %s | %s", resp.status_code, status, detection)
             return result
 
         except requests.RequestException as e:
-            print(f"    -> ERREUR: {e}")
+            logger.error("Erreur requete SQLI: %s", e)
             return SingleAttackResult(
                 vector_id=vector.id,
                 payload_used=payload,
@@ -105,7 +113,7 @@ class AttackExecutor:
             - Verifier si le payload est stocke (GET apres POST)
             - Detecter les sanitizations partielles
         """
-        raise NotImplementedError("_test_xss n'est pas encore implemente")
+        raise AttackError("_test_xss n'est pas encore implemente", vector_id=vector.id)
 
     def _test_idor(self, vector: AttackVector, payload: str) -> SingleAttackResult:
         """Teste une attaque IDOR sur l'endpoint cible.
@@ -116,7 +124,7 @@ class AttackExecutor:
             - Comparer les reponses pour detecter l'acces non autorise
             - Verifier si les donnees retournees appartiennent a un autre utilisateur
         """
-        raise NotImplementedError("_test_idor n'est pas encore implemente")
+        raise AttackError("_test_idor n'est pas encore implemente", vector_id=vector.id)
 
     def _test_path_traversal(
         self, vector: AttackVector, payload: str
@@ -128,8 +136,10 @@ class AttackExecutor:
             - Verifier si la reponse contient du contenu de fichier systeme
             - Tester differentes encodages (URL encoding, double encoding)
         """
-        raise NotImplementedError("_test_path_traversal n'est pas encore implemente")
+        raise AttackError("_test_path_traversal n'est pas encore implemente", vector_id=vector.id)
 
+    @logged
+    @timed
     def execute_all(
         self, attack_plan: AttackPlan, payload_result: PayloadResult
     ) -> AttackResult:
@@ -142,9 +152,7 @@ class AttackExecutor:
         Returns:
             Resultats de toutes les attaques.
         """
-        print(f"\n{'='*60}")
-        print(f"[EXECUTOR] Execution des attaques sur {self.base_url}")
-        print(f"{'='*60}")
+        logger.info("Execution des attaques sur %s", self.base_url)
 
         results: list[SingleAttackResult] = []
         total = 0
@@ -159,7 +167,7 @@ class AttackExecutor:
             payload_map[gp.vector_id].extend(gp.variants)
 
         for vector in attack_plan.vectors:
-            print(f"\n--- Vecteur {vector.id} ({vector.attack_type.value}) ---")
+            logger.info("Vecteur %s (%s)", vector.id, vector.attack_type.value)
 
             payloads = payload_map.get(vector.id, vector.base_payloads)
             if not payloads:
@@ -179,20 +187,18 @@ class AttackExecutor:
                     elif vector.attack_type.value == "path_traversal":
                         result = self._test_path_traversal(vector, payload)
                     else:
-                        print(f"  [SKIP] Type d'attaque non supporte: {vector.attack_type.value}")
+                        logger.warning("Type d'attaque non supporte: %s", vector.attack_type.value)
                         continue
 
                     results.append(result)
                     if result.success:
                         success_count += 1
 
-                except NotImplementedError as e:
-                    print(f"  [SKIP] {e}")
+                except AttackError as e:
+                    logger.warning("Attaque non implementee: %s", e)
                     break  # Passer au vecteur suivant
 
-        print(f"\n{'='*60}")
-        print(f"[EXECUTOR] Terminé: {total} tentatives, {success_count} succes")
-        print(f"{'='*60}")
+        logger.info("Termine: %d tentatives, %d succes", total, success_count)
 
         return AttackResult(
             results=results,
@@ -209,12 +215,13 @@ class AttackExecutor:
             / "fixtures"
             / "attack_result.json"
         )
-        print(f"[EXECUTOR] Chargement de la fixture: {fixture_path}")
+        logger.info("Chargement de la fixture: %s", fixture_path)
         data = json.loads(fixture_path.read_text())
         result = AttackResult.model_validate(data)
-        print(
-            f"[EXECUTOR] Fixture chargee: {result.total_attempts} tentatives, "
-            f"{result.successful_attacks} succes"
+        logger.info(
+            "Fixture chargee: %d tentatives, %d succes",
+            result.total_attempts,
+            result.successful_attacks,
         )
         return result
 
@@ -222,8 +229,12 @@ class AttackExecutor:
 if __name__ == "__main__":
     import sys
 
+    from src.infra.logging import setup_logging
+
+    setup_logging(level=settings.log_level, fmt=settings.log_format)
+
     if "--fixture" in sys.argv or "--fixtures" in sys.argv:
-        print("=== Mode fixture ===")
+        logger.info("Mode fixture")
         result = AttackExecutor.from_fixtures()
     else:
         # Charger les fixtures pour le plan et les payloads
@@ -234,8 +245,7 @@ if __name__ == "__main__":
         plan = AttackPlan.model_validate(plan_data)
         payloads = PayloadResult.model_validate(payload_data)
 
-        executor = AttackExecutor("http://localhost:3000")
+        executor = AttackExecutor(settings.target_url)
         result = executor.execute_all(plan, payloads)
 
-    print("\n=== Resultats ===")
-    print(result.model_dump_json(indent=2))
+    logger.info("Resultats:\n%s", result.model_dump_json(indent=2))

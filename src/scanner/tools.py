@@ -10,9 +10,14 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
+from src.infra.logging import get_logger
+from src.infra.config import settings
+from src.infra.decorators import timed, safe
 from .http_utils import safe_request, parallel_requests, error_json
 from .crawlers import build_paths_list
 from .form_parsing import analyze_static_forms, analyze_dynamic_forms
+
+logger = get_logger(__name__)
 
 
 # Ports par defaut si l'agent ne precise pas
@@ -20,6 +25,7 @@ DEFAULT_PORTS = "21,22,80,443,3000,3306,5432,6379,8000,8080,8443,9200,27017"
 
 
 @tool
+@timed
 def port_scan(target: str, ports: str = "") -> str:
     """Scanne les ports d'une cible pour decouvrir les services actifs.
 
@@ -37,7 +43,7 @@ def port_scan(target: str, ports: str = "") -> str:
         JSON des ports ouverts avec service et version.
     """
     ports_to_scan = ports.strip() if ports.strip() else DEFAULT_PORTS
-    print(f"[SCANNER] Scan de ports sur {target} ({ports_to_scan})...")
+    logger.info("Scan de ports sur %s (%s)...", target, ports_to_scan)
 
     host = target.replace("http://", "").replace("https://", "").split(":")[0]
 
@@ -71,54 +77,45 @@ def _build_port_summary(ports: list) -> str:
     return "\n".join(lines)
 
 
+@safe(fallback=None)
 def _port_scan_docker(host: str, ports: str) -> list | None:
     """Scan via le micro-service nmap Docker."""
-    import os
-    nmap_url = os.getenv("NMAP_SERVICE_URL", "http://localhost:8081")
-    try:
-        resp, error = safe_request(f"{nmap_url}/scan?host={host}&ports={ports}", timeout=3)
-        if resp is None:
-            print(f"[SCANNER] Service nmap Docker non disponible")
-            return None
-
-        data = resp.json()
-        if "error" in data:
-            print(f"[SCANNER] Service nmap erreur: {data['error']}")
-            return None
-
-        results = data.get("results", [])
-        print(f"[SCANNER] {len(results)} ports trouves (nmap Docker)")
-        return results
-
-    except Exception as e:
-        print(f"[SCANNER] Service nmap Docker echoue: {e}")
+    nmap_url = settings.recon_service_url
+    resp, error = safe_request(f"{nmap_url}/scan?host={host}&ports={ports}", timeout=settings.request_timeout)
+    if resp is None:
+        logger.debug("Service nmap Docker non disponible")
         return None
 
+    data = resp.json()
+    if "error" in data:
+        logger.warning("Service nmap erreur: %s", data['error'])
+        return None
 
+    results = data.get("results", [])
+    logger.info("%d ports trouves (nmap Docker)", len(results))
+    return results
+
+
+@safe(fallback=None)
 def _port_scan_nmap(host: str, ports: str) -> list | None:
     """Scan via nmap local."""
-    try:
-        import nmap
-        nm = nmap.PortScanner()
-        nm.scan(host, ports, arguments="-sV --version-intensity 2")
+    import nmap
+    nm = nmap.PortScanner()
+    nm.scan(host, ports, arguments="-sV --version-intensity 2")
 
-        results = []
-        for proto in nm[host].all_protocols():
-            for port in nm[host][proto].keys():
-                state = nm[host][proto][port]
-                if state["state"] == "open":
-                    results.append({
-                        "port": port,
-                        "service": state.get("name", "unknown"),
-                        "version": f"{state.get('product', '')} {state.get('version', '')}".strip() or None,
-                    })
+    results = []
+    for proto in nm[host].all_protocols():
+        for port in nm[host][proto].keys():
+            state = nm[host][proto][port]
+            if state["state"] == "open":
+                results.append({
+                    "port": port,
+                    "service": state.get("name", "unknown"),
+                    "version": f"{state.get('product', '')} {state.get('version', '')}".strip() or None,
+                })
 
-        print(f"[SCANNER] {len(results)} ports trouves (nmap local)")
-        return results
-
-    except Exception as e:
-        print(f"[SCANNER] nmap local non disponible ({type(e).__name__})")
-        return None
+    logger.info("%d ports trouves (nmap local)", len(results))
+    return results
 
 
 def _port_scan_socket(host: str, ports: str) -> list:
@@ -143,7 +140,7 @@ def _port_scan_socket(host: str, ports: str) -> list:
             if port is not None:
                 results.append({"port": port, "service": "unknown", "version": None})
 
-    print(f"[SCANNER] {len(results)} ports trouves (fallback socket)")
+    logger.info("%d ports trouves (fallback socket)", len(results))
     return results
 
 
@@ -169,9 +166,9 @@ def _analyze_cookies(resp) -> list:
         cookies.append(cookie_info)
 
         if issues:
-            print(f"  [!] Cookie '{name}' : {', '.join(issues)}")
+            logger.debug("Cookie '%s' : %s", name, ', '.join(issues))
         else:
-            print(f"  [+] Cookie '{name}' : bien configure")
+            logger.debug("Cookie '%s' : bien configure", name)
 
     return cookies
 
@@ -185,7 +182,7 @@ def _check_cors(target: str) -> dict:
     try:
         # Envoyer une requete avec un Origin malveillant
         headers = {"Origin": "https://evil-attacker.com"}
-        resp = requests.get(target, headers=headers, timeout=5, allow_redirects=False)
+        resp = requests.get(target, headers=headers, timeout=settings.request_timeout, allow_redirects=False)
 
         acao = resp.headers.get("Access-Control-Allow-Origin", "")
         acac = resp.headers.get("Access-Control-Allow-Credentials", "")
@@ -194,19 +191,19 @@ def _check_cors(target: str) -> dict:
             cors_result["allows_any_origin"] = True
             cors_result["misconfigured"] = True
             cors_result["details"] = "Access-Control-Allow-Origin: * (tout le monde)"
-            print(f"  [!] CORS: accepte toute origine (*)")
+            logger.debug("CORS: accepte toute origine (*)")
         elif acao == "https://evil-attacker.com":
             cors_result["allows_any_origin"] = True
             cors_result["misconfigured"] = True
             cors_result["details"] = "Reflete l'origine de l'attaquant"
-            print(f"  [!] CORS: reflete l'origine malveillante")
+            logger.debug("CORS: reflete l'origine malveillante")
         else:
-            print(f"  [+] CORS: origine restreinte ou non configure")
+            logger.debug("CORS: origine restreinte ou non configure")
 
         if acac.lower() == "true" and cors_result["allows_any_origin"]:
             cors_result["allows_credentials"] = True
             cors_result["misconfigured"] = True
-            print(f"  [!] CORS: autorise les credentials avec origine ouverte")
+            logger.debug("CORS: autorise les credentials avec origine ouverte")
 
     except Exception as e:
         cors_result["details"] = f"Verification echouee: {e}"
@@ -259,7 +256,7 @@ def _calibrate_soft404(base_url: str) -> dict | None:
 
     # Utiliser la mediane comme reference
     ref = signatures[len(signatures) // 2]
-    print(f"  [*] Soft-404 calibre: {ref['length']} bytes, {ref['words']} words, status {ref['status']}")
+    logger.debug("Soft-404 calibre: %d bytes, %d words, status %d", ref['length'], ref['words'], ref['status'])
     return ref
 
 
@@ -318,6 +315,7 @@ PARAM_PATTERNS = [
 
 
 @tool
+@timed
 def endpoint_discovery(target: str) -> str:
     """Decouvre les endpoints accessibles sur la cible.
 
@@ -333,7 +331,7 @@ def endpoint_discovery(target: str) -> str:
     Returns:
         JSON avec les endpoints + un resume textuel pour analyse.
     """
-    print(f"[SCANNER] Decouverte des endpoints sur {target}...")
+    logger.info("Decouverte des endpoints sur %s...", target)
 
     all_paths = build_paths_list(target)
     base_url = target.rstrip("/")
@@ -347,7 +345,7 @@ def endpoint_discovery(target: str) -> str:
     url_list = [(f"{base_url}{entry['path']}", entry["method"]) for entry in all_paths]
     path_map = {f"{base_url}{entry['path']}": entry["path"] for entry in all_paths}
 
-    results = parallel_requests(url_list, timeout=3, max_workers=10)
+    results = parallel_requests(url_list, timeout=settings.request_timeout, max_workers=settings.max_concurrent_requests)
 
     for url, method, resp in results:
         if resp is None:
@@ -368,7 +366,7 @@ def endpoint_discovery(target: str) -> str:
             "parameters": parameters,
         }
         endpoints.append(ep)
-        print(f"  [+] {method} {path} -> {resp.status_code}")
+        logger.debug("  [+] %s %s -> %d", method, path, resp.status_code)
 
         if resp.status_code == 200:
             content_type = resp.headers.get("Content-Type", "").lower()
@@ -381,7 +379,7 @@ def endpoint_discovery(target: str) -> str:
     # Construire le resume intelligent
     summary = _build_discovery_summary(endpoints, sensitive_findings)
 
-    print(f"[SCANNER] {len(endpoints)} endpoints decouverts")
+    logger.info("%d endpoints decouverts", len(endpoints))
     return json.dumps({
         "endpoints": endpoints,
         "sensitive_findings": sensitive_findings,
@@ -539,6 +537,7 @@ STANDARD_SECURITY_HEADERS = [
 
 
 @tool
+@timed
 def header_checker(target: str, extra_headers: str = "") -> str:
     """Analyse les headers de securite HTTP de la cible.
 
@@ -554,7 +553,7 @@ def header_checker(target: str, extra_headers: str = "") -> str:
     Returns:
         JSON avec headers manquants, cookies, CORS et infos exposees.
     """
-    print(f"[SCANNER] Analyse des headers de securite sur {target}...")
+    logger.info("Analyse des headers de securite sur %s...", target)
 
     resp, error = safe_request(target)
     if resp is None:
@@ -569,9 +568,9 @@ def header_checker(target: str, extra_headers: str = "") -> str:
     for header in security_headers:
         if header.lower() not in [h.lower() for h in resp.headers]:
             missing.append(header)
-            print(f"  [-] Header manquant: {header}")
+            logger.debug("Header manquant: %s", header)
         else:
-            print(f"  [+] Header present: {header}")
+            logger.debug("Header present: %s", header)
 
     # 2. Fuite d'information serveur
     server_info = resp.headers.get("Server", "")
@@ -579,9 +578,9 @@ def header_checker(target: str, extra_headers: str = "") -> str:
     server_leaked = bool(server_info or powered_by)
 
     if server_info:
-        print(f"  [!] Server header expose: {server_info}")
+        logger.debug("Server header expose: %s", server_info)
     if powered_by:
-        print(f"  [!] X-Powered-By expose: {powered_by}")
+        logger.debug("X-Powered-By expose: %s", powered_by)
 
     # 3. Analyse des cookies
     cookies = _analyze_cookies(resp)
@@ -598,11 +597,12 @@ def header_checker(target: str, extra_headers: str = "") -> str:
         "cors": cors,
     }
 
-    print(f"[SCANNER] {len(missing)} headers de securite manquants")
+    logger.info("%d headers de securite manquants", len(missing))
     return json.dumps(result, indent=2)
 
 
 @tool
+@timed
 def form_analyzer(target: str, endpoint: str) -> str:
     """Analyse les formulaires d'un endpoint (statique + dynamique).
 
@@ -616,7 +616,7 @@ def form_analyzer(target: str, endpoint: str) -> str:
     Returns:
         JSON des formulaires trouves avec leurs champs.
     """
-    print(f"[SCANNER] Analyse des formulaires sur {target}{endpoint}...")
+    logger.info("Analyse des formulaires sur %s%s...", target, endpoint)
 
     url = f"{target.rstrip('/')}{endpoint}"
 
@@ -625,11 +625,12 @@ def form_analyzer(target: str, endpoint: str) -> str:
     if not forms_info:
         forms_info = analyze_dynamic_forms(url)
 
-    print(f"[SCANNER] {len(forms_info)} formulaires trouves sur {endpoint}")
+    logger.info("%d formulaires trouves sur %s", len(forms_info), endpoint)
     return json.dumps(forms_info, indent=2)
 
 
 @tool
+@timed
 def probe_endpoint(target: str, path: str, method: str = "GET", body: str = "") -> str:
     """Teste un endpoint specifique avec une methode et un body personnalise.
 
@@ -647,7 +648,7 @@ def probe_endpoint(target: str, path: str, method: str = "GET", body: str = "") 
         JSON avec status, headers et extrait du body de la reponse.
     """
     url = f"{target.rstrip('/')}{path}"
-    print(f"[SCANNER] Probe {method} {url}...")
+    logger.info("Probe %s %s...", method, url)
 
     json_body = None
     if body:
@@ -677,11 +678,12 @@ def probe_endpoint(target: str, path: str, method: str = "GET", body: str = "") 
         )},
     }
 
-    print(f"  [+] {method} {path} -> {resp.status_code}")
+    logger.debug("  [+] %s %s -> %d", method, path, resp.status_code)
     return json.dumps(result, indent=2)
 
 
 @tool
+@timed
 def tech_detector(target: str) -> str:
     """Detecte les technologies et versions utilisees par la cible.
 
@@ -701,6 +703,7 @@ def tech_detector(target: str) -> str:
 
 
 @tool
+@timed
 def directory_bruteforce(target: str, category: str = "common") -> str:
     """Teste une liste de chemins courants pour decouvrir des ressources cachees.
 
@@ -730,7 +733,7 @@ def directory_bruteforce(target: str, category: str = "common") -> str:
     Returns:
         JSON avec les chemins trouves (status 200/401/403) et l'analyse du contenu sensible.
     """
-    print(f"[SCANNER] Bruteforce [{category}] sur {target}...")
+    logger.info("Bruteforce [%s] sur %s...", category, target)
 
     wordlist_path = Path(__file__).parent.parent.parent / "data" / "wordlists" / f"{category}.txt"
     if not wordlist_path.exists():
@@ -750,7 +753,7 @@ def directory_bruteforce(target: str, category: str = "common") -> str:
         for s in sensitive:
             summary += f"\n  {s['path']} : {s['details']}"
 
-    print(f"[SCANNER] {len(found)} chemins trouves [{category}]")
+    logger.info("%d chemins trouves [%s]", len(found), category)
     return json.dumps({"found": found, "sensitive": sensitive, "summary": summary}, indent=2)
 
 
@@ -762,8 +765,6 @@ def _bruteforce_ffuf(target: str, wordlist_path: str) -> tuple[list, list] | Non
     Returns:
         (found, sensitive) ou None si ffuf non disponible.
     """
-    import os
-
     base_url = target.rstrip("/")
 
     # Determiner la categorie depuis le chemin de la wordlist
@@ -772,13 +773,13 @@ def _bruteforce_ffuf(target: str, wordlist_path: str) -> tuple[list, list] | Non
     category = f"{wl_parent}/{wl_name}" if wl_parent != "wordlists" else wl_name
 
     # 1. Service Docker recon-tools
-    recon_url = os.getenv("RECON_SERVICE_URL", "http://localhost:8081")
+    recon_url = settings.recon_service_url
     try:
         resp, error = safe_request(f"{recon_url}/bruteforce?url={base_url}&wordlist={category}", timeout=60)
         if resp and resp.status_code == 200:
             data = resp.json()
             found = data.get("results", [])
-            print(f"  [*] ffuf Docker: {len(found)} resultats")
+            logger.debug("ffuf Docker: %d resultats", len(found))
 
             # Analyser le contenu sensible
             sensitive = []
@@ -799,13 +800,14 @@ def _bruteforce_ffuf(target: str, wordlist_path: str) -> tuple[list, list] | Non
         pass
 
     # 2. ffuf local
+    import os
     import shutil
     import subprocess
     import tempfile
 
     ffuf_bin = shutil.which("ffuf")
     if not ffuf_bin:
-        print("  [*] ffuf non disponible (ni Docker ni local) — fallback Python")
+        logger.debug("ffuf non disponible (ni Docker ni local) — fallback Python")
         return None
 
     try:
@@ -825,7 +827,7 @@ def _bruteforce_ffuf(target: str, wordlist_path: str) -> tuple[list, list] | Non
             "-s",
         ]
 
-        print(f"  [*] ffuf local: {' '.join(cmd[:6])}...")
+        logger.debug("ffuf local: %s...", ' '.join(cmd[:6]))
         subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
         if not os.path.exists(tmp_path):
@@ -847,7 +849,7 @@ def _bruteforce_ffuf(target: str, wordlist_path: str) -> tuple[list, list] | Non
                 "content_length": result.get("length", 0),
             }
             found.append(entry)
-            print(f"  [+] {path} -> {entry['status_code']} ({entry['content_length']} bytes) [ffuf]")
+            logger.debug("  [+] %s -> %d (%d bytes) [ffuf]", path, entry['status_code'], entry['content_length'])
 
             if entry["status_code"] == 200:
                 is_page = "text/html" in entry["content_type"].lower() and entry["content_length"] > 1000
@@ -858,11 +860,11 @@ def _bruteforce_ffuf(target: str, wordlist_path: str) -> tuple[list, list] | Non
                         if finding:
                             sensitive.append(finding)
 
-        print(f"  [*] ffuf local: {len(found)} resultats")
+        logger.debug("ffuf local: %d resultats", len(found))
         return found, sensitive
 
     except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"  [WARN] ffuf echoue: {e}")
+        logger.warning("ffuf echoue: %s", e)
         return None
 
 
@@ -870,7 +872,7 @@ def _bruteforce_python(target: str, wordlist_path: Path) -> tuple[list, list]:
     """Fallback Python : requetes paralleles + calibration soft-404."""
     paths = [line.strip() for line in wordlist_path.read_text().splitlines()
              if line.strip() and not line.startswith("#")]
-    print(f"  [*] Fallback Python: {len(paths)} chemins a tester")
+    logger.debug("Fallback Python: %d chemins a tester", len(paths))
 
     base_url = target.rstrip("/")
     found = []
@@ -882,7 +884,7 @@ def _bruteforce_python(target: str, wordlist_path: Path) -> tuple[list, list]:
     url_list = [(f"{base_url}/{path}", "GET") for path in paths]
     path_map = {f"{base_url}/{path}": f"/{path}" for path in paths}
 
-    results = parallel_requests(url_list, timeout=3, max_workers=10)
+    results = parallel_requests(url_list, timeout=settings.request_timeout, max_workers=settings.max_concurrent_requests)
 
     for url, method, resp in results:
         if resp is None:
@@ -900,7 +902,7 @@ def _bruteforce_python(target: str, wordlist_path: Path) -> tuple[list, list]:
             "content_length": len(resp.text),
         }
         found.append(entry)
-        print(f"  [+] {path} -> {resp.status_code} ({len(resp.text)} bytes)")
+        logger.debug("  [+] %s -> %d (%d bytes)", path, resp.status_code, len(resp.text))
 
         if resp.status_code == 200:
             content_type = resp.headers.get("Content-Type", "").lower()
@@ -914,6 +916,7 @@ def _bruteforce_python(target: str, wordlist_path: Path) -> tuple[list, list]:
 
 
 @tool
+@timed
 def dns_enum(target: str) -> str:
     """Enumere les sous-domaines d'une cible pour decouvrir la surface d'attaque.
 
@@ -942,22 +945,21 @@ def dns_enum(target: str) -> str:
     if domain in ("localhost", "127.0.0.1") or re.match(r"^\d+\.\d+\.\d+\.\d+$", domain):
         return json.dumps({"subdomains": [], "summary": "Enumeration DNS non applicable sur localhost/IP."})
 
-    print(f"[SCANNER] Enumeration DNS sur {domain}...")
+    logger.info("Enumeration DNS sur %s...", domain)
 
     # 1. Service Docker recon-tools
-    import os
-    recon_url = os.getenv("RECON_SERVICE_URL", "http://localhost:8081")
+    recon_url = settings.recon_service_url
     try:
         resp, _ = safe_request(f"{recon_url}/dns?domain={domain}", timeout=30)
         if resp and resp.status_code == 200:
             data = resp.json()
             results = data.get("subdomains", [])
-            print(f"  [*] Docker recon-tools: {len(results)} sous-domaines")
+            logger.debug("Docker recon-tools: %d sous-domaines", len(results))
 
             summary = f"{len(results)} sous-domaine(s) decouvert(s) pour {domain}."
             if results:
                 summary += "\n" + "\n".join(f"  {r['subdomain']} -> {r['ip']}" for r in results[:20])
-            print(f"[SCANNER] {len(results)} sous-domaines trouves")
+            logger.info("%d sous-domaines trouves", len(results))
             return json.dumps({"subdomains": results, "summary": summary}, indent=2)
     except Exception:
         pass
@@ -982,7 +984,7 @@ def dns_enum(target: str) -> str:
         if len(results) > 20:
             summary += f"\n  ... et {len(results) - 20} autres"
 
-    print(f"[SCANNER] {len(results)} sous-domaines trouves")
+    logger.info("%d sous-domaines trouves", len(results))
     return json.dumps({"subdomains": results, "summary": summary}, indent=2)
 
 
@@ -993,39 +995,37 @@ def _dns_subfinder(domain: str) -> set | None:
 
     subfinder_bin = shutil.which("subfinder")
     if not subfinder_bin:
-        print("  [*] subfinder non disponible — fallback crt.sh + bruteforce")
+        logger.debug("subfinder non disponible — fallback crt.sh + bruteforce")
         return None
 
     try:
         cmd = [subfinder_bin, "-d", domain, "-silent", "-timeout", "15"]
-        print(f"  [*] subfinder: {domain}...")
+        logger.debug("subfinder: %s...", domain)
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
         subs = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
-        print(f"  [*] subfinder: {len(subs)} sous-domaines")
+        logger.debug("subfinder: %d sous-domaines", len(subs))
         return subs
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        print(f"  [WARN] subfinder echoue: {e}")
+        logger.warning("subfinder echoue: %s", e)
         return None
 
 
+@safe(fallback=set())
 def _dns_crtsh(domain: str) -> set:
     """Enumeration via Certificate Transparency (crt.sh)."""
     subdomains = set()
-    try:
-        resp, _ = safe_request(f"https://crt.sh/?q=%25.{domain}&output=json", timeout=10)
-        if resp and resp.status_code == 200:
-            data = resp.json()
-            for entry in data:
-                name = entry.get("name_value", "")
-                for sub in name.split("\n"):
-                    sub = sub.strip().lower()
-                    if sub.endswith(f".{domain}") or sub == domain:
-                        # Ignorer les wildcards
-                        if not sub.startswith("*"):
-                            subdomains.add(sub)
-            print(f"  [*] crt.sh: {len(subdomains)} sous-domaines")
-    except Exception as e:
-        print(f"  [WARN] crt.sh echoue: {e}")
+    resp, _ = safe_request(f"https://crt.sh/?q=%25.{domain}&output=json", timeout=10)
+    if resp and resp.status_code == 200:
+        data = resp.json()
+        for entry in data:
+            name = entry.get("name_value", "")
+            for sub in name.split("\n"):
+                sub = sub.strip().lower()
+                if sub.endswith(f".{domain}") or sub == domain:
+                    # Ignorer les wildcards
+                    if not sub.startswith("*"):
+                        subdomains.add(sub)
+        logger.debug("crt.sh: %d sous-domaines", len(subdomains))
 
     return subdomains
 
@@ -1036,14 +1036,14 @@ def _dns_bruteforce(domain: str) -> set:
 
     wordlist_path = Path(__file__).parent.parent.parent / "data" / "wordlists" / "seclists" / "dns-subdomains.txt"
     if not wordlist_path.exists():
-        print("  [*] Wordlist DNS non disponible (lancer scripts/setup_wordlists.sh)")
+        logger.debug("Wordlist DNS non disponible (lancer scripts/setup_wordlists.sh)")
         return set()
 
     # Limiter a 500 pour ne pas etre trop lent
     prefixes = [line.strip() for line in wordlist_path.read_text().splitlines()
                 if line.strip() and not line.startswith("#")][:500]
 
-    print(f"  [*] DNS bruteforce: {len(prefixes)} prefixes a tester...")
+    logger.debug("DNS bruteforce: %d prefixes a tester...", len(prefixes))
     subdomains = set()
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1063,7 +1063,7 @@ def _dns_bruteforce(domain: str) -> set:
             if result:
                 subdomains.add(result)
 
-    print(f"  [*] DNS bruteforce: {len(subdomains)} sous-domaines resolus")
+    logger.debug("DNS bruteforce: %d sous-domaines resolus", len(subdomains))
     return subdomains
 
 
@@ -1090,27 +1090,30 @@ def _resolve_subdomains(subdomains: list) -> list:
 
 
 if __name__ == "__main__":
-    print("=== Test des outils de scan ===\n")
+    from src.infra.logging import setup_logging
+    setup_logging(level=settings.log_level, fmt=settings.log_format)
+
+    logger.info("=== Test des outils de scan ===")
 
     target = "http://localhost:3000"
 
-    print("--- Port Scan ---")
-    print(port_scan.invoke({"target": target}))
+    logger.info("--- Port Scan ---")
+    logger.info(port_scan.invoke({"target": target}))
 
-    print("\n--- Endpoint Discovery ---")
-    print(endpoint_discovery.invoke({"target": target}))
+    logger.info("--- Endpoint Discovery ---")
+    logger.info(endpoint_discovery.invoke({"target": target}))
 
-    print("\n--- Header Checker ---")
-    print(header_checker.invoke({"target": target}))
+    logger.info("--- Header Checker ---")
+    logger.info(header_checker.invoke({"target": target}))
 
-    print("\n--- Form Analyzer (page login) ---")
-    print(form_analyzer.invoke({"target": target, "endpoint": "/#/login"}))
+    logger.info("--- Form Analyzer (page login) ---")
+    logger.info(form_analyzer.invoke({"target": target, "endpoint": "/#/login"}))
 
-    print("\n--- Tech Detector ---")
-    print(tech_detector.invoke({"target": target}))
+    logger.info("--- Tech Detector ---")
+    logger.info(tech_detector.invoke({"target": target}))
 
-    print("\n--- Directory Bruteforce ---")
-    print(directory_bruteforce.invoke({"target": target, "category": "sensitive"}))
+    logger.info("--- Directory Bruteforce ---")
+    logger.info(directory_bruteforce.invoke({"target": target, "category": "sensitive"}))
 
-    print("\n--- Probe Endpoint ---")
-    print(probe_endpoint.invoke({"target": target, "path": "/rest/user/login", "method": "POST", "body": "{}"}))
+    logger.info("--- Probe Endpoint ---")
+    logger.info(probe_endpoint.invoke({"target": target, "path": "/rest/user/login", "method": "POST", "body": "{}"}))

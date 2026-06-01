@@ -4,6 +4,11 @@ Evite de lancer un nouveau processus Chromium a chaque appel.
 Un seul navigateur est partage entre tous les modules du scanner.
 """
 
+from src.infra.logging import get_logger
+from src.infra.exceptions import ExternalServiceError
+
+logger = get_logger(__name__)
+
 _playwright = None
 _browser = None
 
@@ -23,10 +28,14 @@ def get_browser():
         from playwright.sync_api import sync_playwright
         _playwright = sync_playwright().start()
         _browser = _playwright.chromium.launch(headless=True)
-        print("[BROWSER] Chromium demarre (singleton)")
+        logger.info("Chromium demarre (singleton)")
         return _browser
     except Exception as e:
-        print(f"[BROWSER] Playwright non disponible: {e}")
+        err = ExternalServiceError(
+            f"Playwright non disponible: {e}",
+            details={"original_error": type(e).__name__},
+        )
+        logger.warning("%s", err)
         return None
 
 
@@ -49,7 +58,11 @@ def new_page(url: str, timeout: int = 10000):
         page.goto(url, wait_until="networkidle", timeout=timeout)
         return page
     except Exception as e:
-        print(f"[BROWSER] Navigation echouee ({url}): {e}")
+        err = ExternalServiceError(
+            f"Navigation echouee ({url}): {e}",
+            details={"url": url, "original_error": type(e).__name__},
+        )
+        logger.error("%s", err)
         return None
 
 

@@ -14,53 +14,161 @@ Endpoints:
 """
 
 import asyncio
+import ipaddress
 import json
 import sys
 import threading
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 
 from dotenv import load_dotenv
+
+from src.infra.config import settings
+from src.infra.exceptions import RedSimulatorError
+from src.infra.logging import get_logger, setup_logging
+
 ENV_PATH = Path(__file__).parent.parent / ".env"
 load_dotenv(ENV_PATH, override=True)
 
-app = FastAPI(title="RedSimulator API", version="0.1.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-_last_report = ""
-_is_fixtures = False
+logger = get_logger(__name__)
 
 
-@app.on_event("shutdown")
-async def _cleanup():
-    """Ferme Playwright proprement a l'arret du serveur."""
+# ---------------------------------------------------------------------------
+# Pipeline state
+# ---------------------------------------------------------------------------
+
+class _PipelineState:
+    """Holds mutable state shared across API endpoints.
+
+    NOTE: This is NOT thread-safe.  It is acceptable for a single-process
+    uvicorn deployment where SSE handlers run on the async event loop.
+    If the API is ever served with multiple workers, this must be replaced
+    by a proper shared store (e.g. Redis).
+    """
+
+    def __init__(self) -> None:
+        self.last_report: str = ""
+        self.is_fixtures: bool = False
+
+
+_state = _PipelineState()
+
+
+# ---------------------------------------------------------------------------
+# Target URL validation
+# ---------------------------------------------------------------------------
+
+# Internal / private IP ranges that must be blocked (SSRF protection).
+_INTERNAL_NETWORKS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("192.168.0.0/16"),
+]
+
+# 127.x.x.x except 127.0.0.1 (localhost:3000 is allowed for local dev)
+_LOOPBACK_NETWORK = ipaddress.ip_network("127.0.0.0/8")
+_ALLOWED_LOOPBACK = ipaddress.ip_address("127.0.0.1")
+
+
+def _validate_target_url(url: str) -> str | None:
+    """Validate that *url* is an acceptable scan target.
+
+    Returns None if valid, or an error message string if invalid.
+    """
+    if not url.startswith(("http://", "https://")):
+        return "Target URL must start with http:// or https://"
+
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return "Target URL is malformed"
+
+    hostname = parsed.hostname
+    if not hostname:
+        return "Target URL must include a hostname"
+
+    # Resolve hostname to IP for internal-range check
+    try:
+        addr = ipaddress.ip_address(hostname)
+    except ValueError:
+        # hostname is a DNS name, not a raw IP — allow it
+        # (DNS rebinding is out of scope for this PoC)
+        return None
+
+    # Allow localhost (127.0.0.1) for local dev
+    if addr in _LOOPBACK_NETWORK and addr != _ALLOWED_LOOPBACK:
+        return "Target URL points to a blocked loopback address"
+
+    for network in _INTERNAL_NETWORKS:
+        if addr in network:
+            return f"Target URL points to a blocked internal network ({network})"
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Lifespan
+# ---------------------------------------------------------------------------
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan: startup and shutdown logic."""
+    setup_logging(settings.log_level, settings.log_format)
+    logger.info("RedSimulator API starting up")
+    yield
+    # Shutdown: close Playwright cleanly
     try:
         from src.scanner.browser import shutdown
         shutdown()
     except Exception:
         pass
+    logger.info("RedSimulator API shut down")
 
+
+app = FastAPI(title="RedSimulator API", version="0.1.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ---------------------------------------------------------------------------
+# SSE helpers
+# ---------------------------------------------------------------------------
 
 def _sse(event_type: str, data: dict):
     """Formate un evenement SSE."""
     return {"event": event_type, "data": json.dumps(data, default=str)}
 
 
+def _safe_error_payload(phase: str, exc: Exception) -> dict:
+    """Build an SSE error payload that never leaks raw exception details."""
+    if isinstance(exc, RedSimulatorError):
+        payload = exc.to_safe_dict()
+        payload["phase"] = phase
+        return payload
+    logger.error("Unexpected error in phase %s", phase, exc_info=exc)
+    return {"phase": phase, "error": "INTERNAL_ERROR", "message": "An unexpected error occurred"}
+
+
+# ---------------------------------------------------------------------------
+# SSE pipeline generator
+# ---------------------------------------------------------------------------
+
 async def _run_pipeline(target: str, use_fixtures: bool):
     """Generateur SSE avec delais pour affichage temps reel."""
-    global _last_report, _is_fixtures
-    _is_fixtures = use_fixtures
+    _state.is_fixtures = use_fixtures
     fixtures_dir = Path(__file__).parent.parent / "data" / "fixtures"
 
     # ── ETAPE 1 : SCANNER ──
@@ -161,7 +269,7 @@ async def _run_pipeline(target: str, use_fixtures: bool):
         await asyncio.sleep(0.5)
 
     except Exception as e:
-        yield _sse("error", {"phase": "scanning", "message": str(e)})
+        yield _sse("error", _safe_error_payload("scanning", e))
         return
 
     # ── ETAPE 2 : EXPERT ──
@@ -202,7 +310,7 @@ async def _run_pipeline(target: str, use_fixtures: bool):
         await asyncio.sleep(0.5)
 
     except Exception as e:
-        yield _sse("error", {"phase": "expert", "message": str(e)})
+        yield _sse("error", _safe_error_payload("expert", e))
         return
 
     # ── ETAPE 3 : GENERATOR ──
@@ -227,7 +335,7 @@ async def _run_pipeline(target: str, use_fixtures: bool):
         await asyncio.sleep(0.5)
 
     except Exception as e:
-        yield _sse("error", {"phase": "vae", "message": str(e)})
+        yield _sse("error", _safe_error_payload("vae", e))
         return
 
     # ── ETAPE 4 : EXECUTOR ──
@@ -257,7 +365,7 @@ async def _run_pipeline(target: str, use_fixtures: bool):
         await asyncio.sleep(0.5)
 
     except Exception as e:
-        yield _sse("error", {"phase": "attacking", "message": str(e)})
+        yield _sse("error", _safe_error_payload("attacking", e))
         return
 
     # ── ETAPE 5 : REPORTER ──
@@ -267,7 +375,7 @@ async def _run_pipeline(target: str, use_fixtures: bool):
     try:
         from src.reporter.report_generator import generate_report
         report = generate_report(scan_result, attack_plan, attack_result)
-        _last_report = report
+        _state.last_report = report
 
         # Rapport par petits chunks pour effet typewriter
         chunk_size = 40
@@ -279,11 +387,15 @@ async def _run_pipeline(target: str, use_fixtures: bool):
         await asyncio.sleep(0.3)
 
     except Exception as e:
-        yield _sse("error", {"phase": "reporting", "message": str(e)})
+        yield _sse("error", _safe_error_payload("reporting", e))
         return
 
     yield _sse("pipeline_done", {"message": "Pipeline termine"})
 
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
 @app.get("/api/health")
 def health():
@@ -293,6 +405,10 @@ def health():
 @app.get("/api/scan/stream")
 async def scan_stream(target: str = Query(default="http://localhost:3000")):
     """Pipeline live via SSE."""
+    error = _validate_target_url(target)
+    if error:
+        logger.warning("Rejected scan target %r: %s", target, error)
+        return JSONResponse(status_code=400, content={"error": "INVALID_TARGET", "message": error})
     return EventSourceResponse(_run_pipeline(target, use_fixtures=False))
 
 
@@ -309,11 +425,11 @@ class ChatRequest(BaseModel):
 @app.post("/api/chat")
 def chat(req: ChatRequest):
     """Question au chatbot RAG."""
-    if not _last_report:
+    if not _state.last_report:
         return {"answer": "Aucun rapport disponible. Lancez d'abord un scan.", "mode": "error"}
 
     # En mode fixtures, reponse generique sans appeler le RAG
-    if _is_fixtures:
+    if _state.is_fixtures:
         return {
             "answer": "Le chatbot RAG est disponible uniquement en mode live. "
                       "En mode fixtures, les donnees sont simulees et le RAG n'est pas active. "
@@ -323,8 +439,12 @@ def chat(req: ChatRequest):
 
     try:
         from src.reporter.rag_chatbot import index_report, ask_report
-        index_report(_last_report)
+        index_report(_state.last_report)
         answer = ask_report(req.question)
         return {"answer": answer, "mode": "live"}
-    except Exception as e:
-        return {"answer": f"Erreur: {e}", "mode": "error"}
+    except RedSimulatorError as exc:
+        logger.error("RAG chatbot error: %s", exc, exc_info=exc)
+        return {"answer": "Une erreur est survenue lors du traitement.", "mode": "error"}
+    except Exception as exc:
+        logger.error("Unexpected RAG chatbot error", exc_info=exc)
+        return {"answer": "Une erreur est survenue lors du traitement.", "mode": "error"}

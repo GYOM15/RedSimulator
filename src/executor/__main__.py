@@ -7,12 +7,17 @@ import json
 import sys
 from pathlib import Path
 
+from src.infra.config import settings
+from src.infra.logging import get_logger, setup_logging
 from src.models import AttackPlan, AttackResult, PayloadResult
 
 from .runner import AttackExecutor
 
+setup_logging(level=settings.log_level, fmt=settings.log_format)
+logger = get_logger(__name__)
+
 if "--fixture" in sys.argv or "--fixtures" in sys.argv:
-    print("=== Mode fixture ===")
+    logger.info("Mode fixture")
     result = AttackExecutor.from_fixtures()
 else:
     data_dir = Path(__file__).parent.parent.parent / "data" / "fixtures"
@@ -22,8 +27,7 @@ else:
     plan = AttackPlan.model_validate(plan_data)
     payloads = PayloadResult.model_validate(payload_data)
 
-    executor = AttackExecutor("http://localhost:3000")
+    executor = AttackExecutor(settings.target_url)
     result = executor.execute_all(plan, payloads)
 
-print("\n=== Resultats ===")
-print(result.model_dump_json(indent=2))
+logger.info("Resultats:\n%s", result.model_dump_json(indent=2))

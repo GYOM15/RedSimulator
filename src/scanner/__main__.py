@@ -3,33 +3,37 @@
 Usage: python3 -m src.scanner [--fixtures]
 """
 
-import os
 import sys
 
+from src.infra.logging import setup_logging, get_logger
+from src.infra.config import settings
 from .agent import ReconAgent
 
+setup_logging(level=settings.log_level, fmt=settings.log_format)
+logger = get_logger(__name__)
+
 if "--fixture" in sys.argv or "--fixtures" in sys.argv:
-    print("=== Mode fixture ===")
+    logger.info("=== Mode fixture ===")
     scan = ReconAgent.from_fixture()
 else:
-    target = os.getenv("TARGET_URL", "http://localhost:3000")
+    target = settings.target_url
     agent = ReconAgent(target)
     scan = agent.run()
 
     # Afficher le raisonnement de l'agent si disponible
     if agent.agent_messages:
-        print(f"\n{'='*60}")
-        print("Raisonnement de l'agent:")
-        print(f"{'='*60}")
+        logger.info("=" * 60)
+        logger.info("Raisonnement de l'agent:")
+        logger.info("=" * 60)
         for step in agent.agent_messages:
             if step["type"] == "think":
-                print(f"\n  THINK: {step['content'][:200]}")
+                logger.info("  THINK: %s", step['content'][:200])
             elif step["type"] == "act":
-                print(f"  ACT:   {step['tool']}({step['args']})")
+                logger.info("  ACT:   %s(%s)", step['tool'], step['args'])
             elif step["type"] == "observe":
-                print(f"  OBS:   {step['tool']} -> {step['content'][:100]}")
+                logger.info("  OBS:   %s -> %s", step['tool'], step['content'][:100])
 
-print(f"\n{'='*60}")
-print("Resultat du scan:")
-print(f"{'='*60}")
-print(scan.model_dump_json(indent=2))
+logger.info("=" * 60)
+logger.info("Resultat du scan:")
+logger.info("=" * 60)
+logger.info(scan.model_dump_json(indent=2))

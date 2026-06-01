@@ -6,17 +6,19 @@ Fallback : template statique avec les donnees inserees.
 TODO: Ameliorer les prompts, ajouter le streaming.
 """
 
-import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from dotenv import load_dotenv
-
+from src.infra.config import settings
+from src.infra.decorators import logged
+from src.infra.exceptions import ReporterError
+from src.infra.logging import get_logger
 from src.models import AttackPlan, AttackResult, ScanResult
 
-load_dotenv()
+logger = get_logger(__name__)
 
 
+@logged
 def generate_report(
     scan: ScanResult,
     plan: AttackPlan,
@@ -35,13 +37,13 @@ def generate_report(
     Returns:
         Rapport en format Markdown.
     """
-    print("\n[REPORTER] Generation du rapport de vulnerabilites...")
+    logger.info("Generation du rapport de vulnerabilites...")
 
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    api_key = settings.anthropic_api_key or ""
     if api_key and not api_key.startswith("sk-ant-..."):
         return _generate_with_llm(scan, plan, results, api_key)
     else:
-        print("[REPORTER] Pas de cle API, utilisation du template statique")
+        logger.warning("Pas de cle API, utilisation du template statique")
         return _generate_template(scan, plan, results)
 
 
@@ -78,17 +80,17 @@ def _generate_with_llm(
                 Format: Markdown propre, professionnel, en francais."""
 
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=4096,
+            model=settings.llm_model,
+            max_tokens=settings.llm_max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
 
         report = message.content[0].text
-        print("[REPORTER] Rapport genere avec Claude API")
+        logger.info("Rapport genere avec Claude API")
         return report
 
     except Exception as e:
-        print(f"[REPORTER] Erreur API: {e}, fallback sur template")
+        logger.error("Erreur API: %s, fallback sur template", e)
         return _generate_template(scan, plan, results)
 
 
@@ -227,13 +229,17 @@ def _generate_template(
             *Rapport genere par RedSimulator — PoC academique INF8790*
             """
 
-    print(f"[REPORTER] Rapport genere ({len(report)} caracteres)")
+    logger.info("Rapport genere (%d caracteres)", len(report))
     return report
 
 
 if __name__ == "__main__":
     import json
     from pathlib import Path
+
+    from src.infra.logging import setup_logging
+
+    setup_logging(level=settings.log_level, fmt=settings.log_format)
 
     data_dir = Path(__file__).parent.parent.parent / "data" / "fixtures"
 
@@ -242,4 +248,4 @@ if __name__ == "__main__":
     results = AttackResult.model_validate(json.loads((data_dir / "attack_result.json").read_text()))
 
     report = generate_report(scan, plan, results)
-    print(report)
+    logger.info("Rapport genere:\n%s", report)

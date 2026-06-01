@@ -6,7 +6,6 @@ pour decider quels outils utiliser et comment interpreter les resultats.
 """
 
 import json
-import os
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -17,10 +16,16 @@ from dotenv import load_dotenv
 from langchain_core.tools import tool
 
 from src.models import ScanResult
+from src.infra.logging import get_logger
+from src.infra.config import settings
+from src.infra.decorators import logged, retry
+from src.infra.exceptions import ScanTimeoutError, LLMError
 from .tools import port_scan, endpoint_discovery, header_checker, form_analyzer, probe_endpoint, tech_detector, directory_bruteforce, dns_enum
 from .memory import save_scan, get_previous_context
 from .tech_detector import detect_technologies
 from .http_utils import clear_cache
+
+logger = get_logger(__name__)
 
 ENV_PATH = Path(__file__).parent.parent.parent / ".env"
 load_dotenv(ENV_PATH, override=True)
@@ -116,12 +121,12 @@ def _build_submit_tool(holder: _ScanResultHolder):
             data = json.loads(report_json)
             scan_result = ScanResult.model_validate(data)
             holder.result = scan_result
-            print("\n[AGENT] Rapport de scan valide avec succes!")
-            print(f"  - Cible: {scan_result.target}")
-            print(f"  - Ports ouverts: {len(scan_result.open_ports)}")
-            print(f"  - Endpoints: {len(scan_result.endpoints)}")
-            print(f"  - Technologies: {scan_result.technologies}")
-            print(f"  - Formulaires: {len(scan_result.forms)}")
+            logger.info("Rapport de scan valide avec succes!")
+            logger.debug("  - Cible: %s", scan_result.target)
+            logger.debug("  - Ports ouverts: %d", len(scan_result.open_ports))
+            logger.debug("  - Endpoints: %d", len(scan_result.endpoints))
+            logger.debug("  - Technologies: %s", scan_result.technologies)
+            logger.debug("  - Formulaires: %d", len(scan_result.forms))
             return f"Rapport valide. {len(scan_result.endpoints)} endpoints, {len(scan_result.forms)} formulaires."
         except Exception as e:
             return f"Erreur de validation: {e}. Corrige le JSON et reessaie."
@@ -137,7 +142,7 @@ def _safe_invoke(tool_func, params: dict, fallback=None):
         result_json = tool_func.invoke(params)
         return json.loads(result_json)
     except Exception as e:
-        print(f"  [WARN] {tool_func.name} echoue: {e}")
+        logger.warning("%s echoue: %s", tool_func.name, e)
         return fallback
 
 
@@ -195,6 +200,7 @@ class ReconAgent:
                 self._emit("form", form)
                 time.sleep(0.1)
 
+    @logged
     def run(self) -> ScanResult:
         """Lance l'agent de reconnaissance.
 
@@ -210,11 +216,8 @@ class ReconAgent:
 
         SCAN_TIMEOUT = 90  # secondes
 
-        class ScanTimeout(Exception):
-            pass
-
         def _timeout_handler(signum, frame):
-            raise ScanTimeout("Timeout global du scan")
+            raise ScanTimeoutError("Timeout global du scan")
 
         clear_cache()  # Vider le cache entre les scans
         self._emit("scan_log", {"text": f"Demarrage de la reconnaissance sur {self.target_url} (max {SCAN_TIMEOUT}s)"})
@@ -234,7 +237,7 @@ class ReconAgent:
                 if result:
                     self._emit("scan_log", {"text": "Agent termine — enrichissement des resultats..."})
                     scan = self._enrich_agent_result(result)
-            except ScanTimeout:
+            except ScanTimeoutError:
                 self._emit("scan_log", {"text": f"Timeout {SCAN_TIMEOUT}s atteint — passage au fallback"})
             except Exception as e:
                 self._emit("scan_log", {"text": f"Agent LLM indisponible: {e}"})
@@ -267,6 +270,7 @@ class ReconAgent:
             from .browser import shutdown
             shutdown()
 
+    @retry(max_attempts=2, exceptions=(LLMError,))
     def _run_react_agent(self) -> ScanResult | None:
         """Execute l'agent ReAct avec auto-evaluation.
 
@@ -282,11 +286,11 @@ class ReconAgent:
         from langchain_anthropic import ChatAnthropic
         from langgraph.prebuilt import create_react_agent
 
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        api_key = settings.anthropic_api_key
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY non definie")
 
-        llm = ChatAnthropic(model="claude-sonnet-4-20250514", temperature=0)
+        llm = ChatAnthropic(model=settings.llm_model, temperature=settings.llm_temperature)
         agent = create_react_agent(llm, self.tools)
 
         max_iterations = 1
@@ -419,7 +423,7 @@ class ReconAgent:
 
         # 1. Technologies — si l'agent en a trouve peu ou aucune
         if len(result.technologies) < 3:
-            print("[ENRICH] Completion des technologies...")
+            logger.info("Completion des technologies...")
             techs = self._detect_technologies()
             if len(techs) > len(result.technologies):
                 result.technologies = techs
@@ -427,7 +431,7 @@ class ReconAgent:
 
         # 2. Headers — si vides
         if not result.headers.missing_security_headers:
-            print("[ENRICH] Completion des headers...")
+            logger.info("Completion des headers...")
             headers = self._check_headers()
             if headers.get("missing_security_headers"):
                 result.headers.missing_security_headers = headers["missing_security_headers"]
@@ -436,7 +440,7 @@ class ReconAgent:
 
         # 3. Ports — si l'agent n'en a trouve aucun
         if not result.open_ports:
-            print("[ENRICH] Completion des ports...")
+            logger.info("Completion des ports...")
             ports = self._scan_ports()
             if ports:
                 from src.models import PortInfo
@@ -444,9 +448,9 @@ class ReconAgent:
                 enriched = True
 
         if enriched:
-            print("[ENRICH] Scan enrichi avec les donnees manquantes")
+            logger.info("Scan enrichi avec les donnees manquantes")
         else:
-            print("[ENRICH] Scan complet, rien a ajouter")
+            logger.info("Scan complet, rien a ajouter")
 
         self.scan_result = result
         return result
@@ -560,7 +564,7 @@ class ReconAgent:
         try:
             return detect_technologies(self.target_url)
         except Exception as e:
-            print(f"  [WARN] Detection technologies echouee: {e}")
+            logger.warning("Detection technologies echouee: %s", e)
             return []
 
     def _analyze_forms(self, endpoints: list) -> list:
@@ -615,35 +619,37 @@ class ReconAgent:
         fixture_path = Path(__file__).parent.parent.parent / "data" / "fixtures" / "scan_result.json"
         data = json.loads(fixture_path.read_text())
         result = ScanResult.model_validate(data)
-        print(f"[AGENT] Fixture chargee: {result.target}, {len(result.endpoints)} endpoints")
+        logger.info("Fixture chargee: %s, %d endpoints", result.target, len(result.endpoints))
         return result
 
 
 if __name__ == "__main__":
     import sys
+    from src.infra.logging import setup_logging
+    setup_logging(level=settings.log_level, fmt=settings.log_format)
 
     if "--fixture" in sys.argv or "--fixtures" in sys.argv:
-        print("=== Mode fixture ===")
+        logger.info("=== Mode fixture ===")
         scan = ReconAgent.from_fixture()
     else:
-        target = os.getenv("TARGET_URL", "http://localhost:3000")
+        target = settings.target_url
         agent = ReconAgent(target)
         scan = agent.run()
 
         # Afficher le raisonnement de l'agent
         if agent.agent_messages:
-            print(f"\n{'='*60}")
-            print("Raisonnement de l'agent:")
-            print(f"{'='*60}")
+            logger.info("=" * 60)
+            logger.info("Raisonnement de l'agent:")
+            logger.info("=" * 60)
             for step in agent.agent_messages:
                 if step["type"] == "think":
-                    print(f"\n  THINK: {step['content'][:200]}")
+                    logger.info("  THINK: %s", step['content'][:200])
                 elif step["type"] == "act":
-                    print(f"  ACT:   {step['tool']}({step['args']})")
+                    logger.info("  ACT:   %s(%s)", step['tool'], step['args'])
                 elif step["type"] == "observe":
-                    print(f"  OBS:   {step['tool']} -> {step['content'][:100]}")
+                    logger.info("  OBS:   %s -> %s", step['tool'], step['content'][:100])
 
-    print(f"\n{'='*60}")
-    print("Resultat du scan:")
-    print(f"{'='*60}")
-    print(scan.model_dump_json(indent=2))
+    logger.info("=" * 60)
+    logger.info("Resultat du scan:")
+    logger.info("=" * 60)
+    logger.info(scan.model_dump_json(indent=2))

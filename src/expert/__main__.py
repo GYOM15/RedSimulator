@@ -6,17 +6,21 @@ Usage: python -m src.expert
 import json
 from pathlib import Path
 
+from src.infra.logging import get_logger, setup_logging
 from src.models import ScanResult
 
 from .facts import scan_result_to_facts
 from .engine import ExpertEngine
 from .rules import get_all_rules
 
+setup_logging()
+logger = get_logger(__name__)
+
 fixture_path = Path(__file__).parent.parent.parent / "data" / "fixtures" / "scan_result.json"
 data = json.loads(fixture_path.read_text())
 scan = ScanResult.model_validate(data)
 
-print("=== Systeme Expert — Chainage Avant ===\n")
+logger.info("=== Systeme Expert — Chainage Avant ===")
 
 # Etape 1: Convertir le scan en faits
 facts = scan_result_to_facts(scan)
@@ -30,5 +34,5 @@ engine.load_rules(get_all_rules())
 plan = engine.run()
 
 # Etape 4: Afficher le resultat
-print("\n=== Plan d'Attaque Genere ===")
-print(plan.model_dump_json(indent=2))
+logger.info("=== Plan d'Attaque Genere ===")
+logger.info(plan.model_dump_json(indent=2))

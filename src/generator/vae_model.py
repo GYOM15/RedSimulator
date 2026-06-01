@@ -16,6 +16,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from src.infra.config import settings
+from src.infra.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 # Vocabulaire : tous les caracteres ASCII imprimables + padding + start + end
 VOCAB_CHARS = list(string.printable)
@@ -39,7 +44,7 @@ MAX_LEN = 128
 # Dimensions du modele
 EMBED_DIM = 32
 HIDDEN_DIM = 128
-LATENT_DIM = 16
+LATENT_DIM = settings.vae_latent_dim
 
 
 def encode_payload(payload: str) -> list[int]:
@@ -239,20 +244,20 @@ def vae_loss(
 
 
 if __name__ == "__main__":
-    print("=== Test du modele VAE ===")
+    logger.info("=== Test du modele VAE ===")
 
     model = PayloadVAE()
-    print(f"Parametres: {sum(p.numel() for p in model.parameters()):,}")
+    logger.info("Parametres: %s", f"{sum(p.numel() for p in model.parameters()):,}")
 
     # Test avec un batch de payloads
     payloads = ["' OR 1=1--", "admin'--", "<script>alert(1)</script>"]
     batch = torch.tensor([encode_payload(p) for p in payloads])
-    print(f"Input shape: {batch.shape}")
+    logger.info("Input shape: %s", batch.shape)
 
     logits, mu, logvar = model(batch)
-    print(f"Output shape: {logits.shape}")
-    print(f"Mu shape: {mu.shape}")
-    print(f"Logvar shape: {logvar.shape}")
+    logger.info("Output shape: %s", logits.shape)
+    logger.info("Mu shape: %s", mu.shape)
+    logger.info("Logvar shape: %s", logvar.shape)
 
     total, recon, kl = vae_loss(logits, batch, mu, logvar)
-    print(f"Loss: total={total:.4f}, recon={recon:.4f}, kl={kl:.4f}")
+    logger.info("Loss: total=%.4f, recon=%.4f, kl=%.4f", total, recon, kl)

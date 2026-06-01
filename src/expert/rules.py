@@ -14,8 +14,12 @@ TODO: Ajouter les regles manquantes :
   - CHAIN_BYPASS_EXFIL : SI auth_bypass + sqli → elever les deux a CRITICAL
 """
 
+from src.infra.logging import get_logger
+
 from .engine import Rule
 from .facts import Fact
+
+logger = get_logger(__name__)
 
 
 def _has_fact(memory: list[Fact], fact_type: str, **attrs) -> bool:

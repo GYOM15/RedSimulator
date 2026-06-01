@@ -12,7 +12,13 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
+from src.infra.config import settings
+from src.infra.decorators import logged, timed
+from src.infra.logging import get_logger
+
 from .vae_model import PayloadVAE, encode_payload, vae_loss
+
+logger = get_logger(__name__)
 
 
 def load_payloads(filepath: str | Path) -> list[str]:
@@ -23,15 +29,17 @@ def load_payloads(filepath: str | Path) -> list[str]:
         line = line.strip()
         if line and not line.startswith("#"):
             payloads.append(line)
-    print(f"[TRAIN] {len(payloads)} payloads charges depuis {path.name}")
+    logger.info("%d payloads charges depuis %s", len(payloads), path.name)
     return payloads
 
 
+@logged
+@timed
 def train_vae(
     payloads: list[str],
-    epochs: int = 50,
+    epochs: int = settings.vae_epochs,
     batch_size: int = 16,
-    lr: float = 1e-3,
+    lr: float = settings.vae_learning_rate,
     kl_weight: float = 0.1,
     save_path: str | Path | None = None,
 ) -> PayloadVAE:
@@ -48,12 +56,12 @@ def train_vae(
     Returns:
         Modele entraine.
     """
-    print(f"\n[TRAIN] Demarrage de l'entrainement")
-    print(f"  - Payloads: {len(payloads)}")
-    print(f"  - Epochs: {epochs}")
-    print(f"  - Batch size: {batch_size}")
-    print(f"  - Learning rate: {lr}")
-    print(f"  - KL weight: {kl_weight}")
+    logger.info("Demarrage de l'entrainement")
+    logger.info("  - Payloads: %d", len(payloads))
+    logger.info("  - Epochs: %d", epochs)
+    logger.info("  - Batch size: %d", batch_size)
+    logger.info("  - Learning rate: %s", lr)
+    logger.info("  - KL weight: %s", kl_weight)
 
     # Encoder les payloads
     encoded = [encode_payload(p) for p in payloads]
@@ -65,8 +73,7 @@ def train_vae(
     model = PayloadVAE()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    print(f"\n[TRAIN] Modele: {sum(p.numel() for p in model.parameters()):,} parametres")
-    print()
+    logger.info("Modele: %s parametres", f"{sum(p.numel() for p in model.parameters()):,}")
 
     model.train()
     for epoch in range(epochs):
@@ -95,11 +102,9 @@ def train_vae(
         avg_kl = total_kl / n_batches
 
         if (epoch + 1) % 5 == 0 or epoch == 0:
-            print(
-                f"  Epoch {epoch+1:3d}/{epochs} | "
-                f"Loss: {avg_loss:.4f} | "
-                f"Recon: {avg_recon:.4f} | "
-                f"KL: {avg_kl:.4f}"
+            logger.info(
+                "  Epoch %3d/%d | Loss: %.4f | Recon: %.4f | KL: %.4f",
+                epoch + 1, epochs, avg_loss, avg_recon, avg_kl,
             )
 
     # Sauvegarder le modele
@@ -107,7 +112,7 @@ def train_vae(
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(model.state_dict(), save_path)
-        print(f"\n[TRAIN] Modele sauvegarde dans {save_path}")
+        logger.info("Modele sauvegarde dans %s", save_path)
 
     return model
 
@@ -118,6 +123,6 @@ if __name__ == "__main__":
     model_path = data_dir / "vae_model.pt"
 
     payloads = load_payloads(payloads_path)
-    model = train_vae(payloads, epochs=50, save_path=model_path)
+    model = train_vae(payloads, save_path=model_path)
 
-    print("\n[TRAIN] Entrainement termine!")
+    logger.info("Entrainement termine!")

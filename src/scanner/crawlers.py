@@ -12,7 +12,10 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
+from src.infra.logging import get_logger
 from .http_utils import safe_request
+
+logger = get_logger(__name__)
 
 
 def load_common_paths() -> list[dict]:
@@ -21,7 +24,7 @@ def load_common_paths() -> list[dict]:
     try:
         return json.loads(config_path.read_text())
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"  [WARN] Impossible de charger {config_path}: {e}")
+        logger.warning("Impossible de charger %s: %s", config_path, e)
         return []
 
 
@@ -59,7 +62,7 @@ def crawl_js_routes(target: str) -> list[dict]:
 
     soup = BeautifulSoup(resp.text, "html.parser")
     js_urls = _extract_js_urls(soup, target)
-    print(f"  [*] {len(js_urls)} fichiers JS trouves")
+    logger.debug("%d fichiers JS trouves", len(js_urls))
 
     seen = set()
     routes = []
@@ -69,7 +72,7 @@ def crawl_js_routes(target: str) -> list[dict]:
                 seen.add(entry["path"])
                 routes.append(entry)
 
-    print(f"  [*] {len(routes)} routes extraites des fichiers JS")
+    logger.debug("%d routes extraites des fichiers JS", len(routes))
     return routes
 
 
@@ -124,11 +127,11 @@ def crawl_dynamic(target: str) -> set:
             links.add(path)
 
     except Exception as e:
-        print(f"  [WARN] Crawl dynamique echoue: {e}")
+        logger.warning("Crawl dynamique echoue: %s", e)
     finally:
         close_page(page)
 
-    print(f"  [*] Playwright: {len(links)} liens dynamiques")
+    logger.debug("Playwright: %d liens dynamiques", len(links))
     return links
 
 
@@ -140,10 +143,10 @@ def build_paths_list(target: str) -> list[dict]:
 
     # Playwright seulement si HTML+JS trouvent peu de routes (SPA)
     if len(html_links) + len(js_routes) < 10:
-        print("  [*] Peu de routes statiques — lancement Playwright")
+        logger.debug("Peu de routes statiques — lancement Playwright")
         dynamic_links = crawl_dynamic(target)
     else:
-        print(f"  [*] {len(html_links) + len(js_routes)} routes statiques — Playwright non necessaire")
+        logger.debug("%d routes statiques — Playwright non necessaire", len(html_links) + len(js_routes))
         dynamic_links = set()
 
     seen = set()
@@ -167,7 +170,7 @@ def build_paths_list(target: str) -> list[dict]:
             seen.add(path)
             all_paths.append({"path": path, "method": "GET"})
 
-    print(f"  [*] Total: {len(config_paths)} config + {len(html_links)} HTML + {len(js_routes)} JS + {len(dynamic_links)} dynamiques = {len(all_paths)} uniques")
+    logger.debug("Total: %d config + %d HTML + %d JS + %d dynamiques = %d uniques", len(config_paths), len(html_links), len(js_routes), len(dynamic_links), len(all_paths))
     return all_paths
 
 

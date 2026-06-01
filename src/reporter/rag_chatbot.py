@@ -7,11 +7,12 @@ TODO: Ameliorer le chunking, ajouter le streaming,
     integrer dans le dashboard Streamlit.
 """
 
-import os
+from src.infra.config import settings
+from src.infra.decorators import logged
+from src.infra.exceptions import RAGError
+from src.infra.logging import get_logger
 
-from dotenv import load_dotenv
-
-load_dotenv()
+logger = get_logger(__name__)
 
 # Collection ChromaDB pour le rapport
 _collection = None
@@ -40,6 +41,7 @@ def _chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str
     return chunks
 
 
+@logged
 def index_report(report_text: str) -> int:
     """Indexe le rapport dans ChromaDB.
 
@@ -53,10 +55,10 @@ def index_report(report_text: str) -> int:
     """
     global _collection, _chunks
 
-    print("[RAG] Indexation du rapport dans ChromaDB...")
+    logger.info("Indexation du rapport dans ChromaDB...")
 
     _chunks = _chunk_text(report_text)
-    print(f"[RAG] {len(_chunks)} chunks crees")
+    logger.debug("%d chunks crees", len(_chunks))
 
     try:
         import chromadb
@@ -81,16 +83,17 @@ def index_report(report_text: str) -> int:
             metadatas=[{"index": i} for i in range(len(_chunks))],
         )
 
-        print(f"[RAG] {len(_chunks)} chunks indexes dans ChromaDB")
+        logger.info("%d chunks indexes dans ChromaDB", len(_chunks))
 
     except ImportError:
-        print("[RAG] ChromaDB non installe, utilisation du fallback en memoire")
+        logger.warning("ChromaDB non installe, utilisation du fallback en memoire")
     except Exception as e:
-        print(f"[RAG] Erreur ChromaDB: {e}, fallback en memoire")
+        logger.error("Erreur ChromaDB: %s, fallback en memoire", e)
 
     return len(_chunks)
 
 
+@logged
 def ask_report(question: str) -> str:
     """Repond a une question sur le rapport.
 
@@ -103,7 +106,7 @@ def ask_report(question: str) -> str:
     Returns:
         Reponse generee.
     """
-    print(f"\n[RAG] Question: {question}")
+    logger.info("Question: %s", question)
 
     # Chercher les chunks similaires
     relevant_chunks = _search_chunks(question, n_results=3)
@@ -112,10 +115,10 @@ def ask_report(question: str) -> str:
         return "Aucune information trouvee dans le rapport pour cette question."
 
     context = "\n\n".join(relevant_chunks)
-    print(f"[RAG] {len(relevant_chunks)} chunks pertinents trouves")
+    logger.debug("%d chunks pertinents trouves", len(relevant_chunks))
 
     # Generer la reponse
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    api_key = settings.anthropic_api_key or ""
     if api_key and not api_key.startswith("sk-ant-..."):
         return _answer_with_llm(question, context, api_key)
     else:
@@ -134,7 +137,7 @@ def _search_chunks(question: str, n_results: int = 3) -> list[str]:
             )
             return results["documents"][0] if results["documents"] else []
         except Exception as e:
-            print(f"[RAG] Erreur de recherche ChromaDB: {e}")
+            logger.error("Erreur de recherche ChromaDB: %s", e)
 
     # Fallback : recherche par mots-cles
     if not _chunks:
@@ -169,17 +172,17 @@ def _answer_with_llm(question: str, context: str, api_key: str) -> str:
                 {question}"""
 
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=settings.llm_model,
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}],
         )
 
         answer = message.content[0].text
-        print(f"[RAG] Reponse generee avec Claude API")
+        logger.info("Reponse generee avec Claude API")
         return answer
 
     except Exception as e:
-        print(f"[RAG] Erreur API: {e}, fallback simple")
+        logger.error("Erreur API: %s, fallback simple", e)
         return _answer_simple(question, context)
 
 
@@ -191,6 +194,10 @@ def _answer_simple(question: str, context: str) -> str:
 if __name__ == "__main__":
     import json
     from pathlib import Path
+
+    from src.infra.logging import setup_logging
+
+    setup_logging(level=settings.log_level, fmt=settings.log_format)
 
     from .report_generator import generate_report
     from src.models import AttackPlan, AttackResult, ScanResult
@@ -214,6 +221,5 @@ if __name__ == "__main__":
 
     for q in questions:
         answer = ask_report(q)
-        print(f"\nQ: {q}")
-        print(f"R: {answer[:300]}...")
-        print()
+        logger.info("Q: %s", q)
+        logger.info("R: %s", answer[:300])

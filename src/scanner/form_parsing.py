@@ -9,7 +9,10 @@ import re
 
 from bs4 import BeautifulSoup
 
+from src.infra.logging import get_logger
 from .http_utils import safe_request
+
+logger = get_logger(__name__)
 
 # Noms de champs a ignorer (barres de recherche globales, etc.)
 IGNORED_FIELD_NAMES = {"search", "q", "searchQuery"}
@@ -73,7 +76,7 @@ def analyze_dynamic_forms(url: str) -> list:
         if orphan_form:
             forms_info.append(orphan_form)
     except Exception as e:
-        print(f"  [WARN] Analyse dynamique echouee: {e}")
+        logger.warning("Analyse dynamique echouee: %s", e)
     finally:
         close_page(page)
 
@@ -128,14 +131,14 @@ def analyze_angular_forms(target: str) -> list:
                 form["endpoint"] = route
                 if form.get("fields"):
                     all_forms.append(form)
-                    print(f"  [+] {route} -> {len(form['fields'])} champs")
+                    logger.debug("%s -> %d champs", route, len(form['fields']))
 
         except Exception:
             pass
         finally:
             close_page(page)
 
-    print(f"  [*] {len(all_forms)} formulaires Angular detectes")
+    logger.debug("%d formulaires Angular detectes", len(all_forms))
     return all_forms
 
 

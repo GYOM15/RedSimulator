@@ -15,6 +15,10 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
+from src.infra.config import settings
+from src.infra.decorators import logged, timed
+from src.infra.exceptions import PhaseError
+from src.infra.logging import get_logger, setup_logging
 from src.models import (
     AttackPlan,
     AttackResult,
@@ -22,12 +26,14 @@ from src.models import (
     ScanResult,
 )
 
+logger = get_logger(__name__)
+
 
 class RedSimulatorPipeline:
     """Pipeline principal de RedSimulator."""
 
-    def __init__(self, target_url: str = "http://localhost:3000"):
-        self.target_url = target_url
+    def __init__(self, target_url: str | None = None):
+        self.target_url = target_url or settings.target_url
         self.data_dir = Path(__file__).parent.parent / "data"
         self.fixtures_dir = self.data_dir / "fixtures"
         self.reports_dir = self.data_dir / "reports"
@@ -39,6 +45,8 @@ class RedSimulatorPipeline:
         self.attack_result: AttackResult | None = None
         self.report: str = ""
 
+    @logged
+    @timed
     def run(self, use_fixtures: bool = False) -> str:
         """Execute le pipeline complet.
 
@@ -48,12 +56,9 @@ class RedSimulatorPipeline:
         Returns:
             Rapport Markdown final.
         """
-        print(f"\n{'#'*60}")
-        print(f"#  RedSimulator Pipeline")
-        print(f"#  Cible: {self.target_url}")
-        print(f"#  Mode: {'fixtures' if use_fixtures else 'live'}")
-        print(f"#  Date: {datetime.now(ZoneInfo('America/Toronto')).strftime('%Y-%m-%d %H:%M (Quebec)')}")
-        print(f"{'#'*60}\n")
+        mode = "fixtures" if use_fixtures else "live"
+        ts = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M (Quebec)")
+        logger.info("RedSimulator Pipeline — target=%s, mode=%s, date=%s", self.target_url, mode, ts)
 
         # Etape 1 : Scanner
         self._step("1/5", "Scanner — Reconnaissance", lambda: self._run_scanner(use_fixtures))
@@ -73,31 +78,26 @@ class RedSimulatorPipeline:
         # Sauvegarder les resultats
         self._save_results()
 
-        print(f"\n{'#'*60}")
-        print(f"#  Pipeline termine!")
-        print(f"#  Rapport: {self.reports_dir / 'report.md'}")
-        print(f"{'#'*60}\n")
+        logger.info("Pipeline termine — rapport: %s", self.reports_dir / "report.md")
 
         return self.report
 
     def _step(self, step_num: str, name: str, func) -> None:
         """Execute une etape du pipeline avec affichage."""
-        print(f"\n{'='*60}")
-        print(f"  [{step_num}] {name}")
-        print(f"{'='*60}")
+        logger.info("[%s] %s", step_num, name)
         try:
             func()
-            print(f"  [{step_num}] OK")
+            logger.info("[%s] OK", step_num)
         except Exception as e:
-            print(f"  [{step_num}] ERREUR: {e}")
-            raise
+            logger.error("[%s] ERREUR: %s", step_num, e)
+            raise PhaseError(f"Phase {name} failed: {e}", phase_name=name) from e
 
     def _run_scanner(self, use_fixtures: bool) -> None:
         """Execute ou charge le scanner."""
         if use_fixtures:
             data = json.loads((self.fixtures_dir / "scan_result.json").read_text())
             self.scan_result = ScanResult.model_validate(data)
-            print(f"  Fixture chargee: {len(self.scan_result.endpoints)} endpoints")
+            logger.info("Fixture chargee: %d endpoints", len(self.scan_result.endpoints))
         else:
             from src.scanner.agent import ReconAgent
 
@@ -109,7 +109,7 @@ class RedSimulatorPipeline:
         if use_fixtures:
             data = json.loads((self.fixtures_dir / "attack_plan.json").read_text())
             self.attack_plan = AttackPlan.model_validate(data)
-            print(f"  Fixture chargee: {len(self.attack_plan.vectors)} vecteurs")
+            logger.info("Fixture chargee: %d vecteurs", len(self.attack_plan.vectors))
         else:
             from src.expert.engine import ExpertEngine
             from src.expert.facts import scan_result_to_facts
@@ -126,7 +126,7 @@ class RedSimulatorPipeline:
         if use_fixtures:
             data = json.loads((self.fixtures_dir / "payload_result.json").read_text())
             self.payload_result = PayloadResult.model_validate(data)
-            print(f"  Fixture chargee: {len(self.payload_result.payloads)} payloads")
+            logger.info("Fixture chargee: %d payloads", len(self.payload_result.payloads))
         else:
             import torch
 
@@ -139,9 +139,9 @@ class RedSimulatorPipeline:
 
             if model_path.exists():
                 model.load_state_dict(torch.load(model_path, weights_only=True))
-                print(f"  Modele charge depuis {model_path}")
+                logger.info("Modele charge depuis %s", model_path)
             else:
-                print("  Modele non entraine, generation avec modele aleatoire")
+                logger.warning("Modele non entraine, generation avec modele aleatoire")
 
             payloads = []
             for vector in self.attack_plan.vectors:
@@ -162,9 +162,10 @@ class RedSimulatorPipeline:
         if use_fixtures:
             data = json.loads((self.fixtures_dir / "attack_result.json").read_text())
             self.attack_result = AttackResult.model_validate(data)
-            print(
-                f"  Fixture chargee: {self.attack_result.total_attempts} tentatives, "
-                f"{self.attack_result.successful_attacks} succes"
+            logger.info(
+                "Fixture chargee: %d tentatives, %d succes",
+                self.attack_result.total_attempts,
+                self.attack_result.successful_attacks,
             )
         else:
             from src.executor.runner import AttackExecutor
@@ -181,7 +182,7 @@ class RedSimulatorPipeline:
         self.report = generate_report(
             self.scan_result, self.attack_plan, self.attack_result
         )
-        print(f"  Rapport genere: {len(self.report)} caracteres")
+        logger.info("Rapport genere: %d caracteres", len(self.report))
 
     def _save_results(self) -> None:
         """Sauvegarde tous les resultats intermediaires."""
@@ -207,17 +208,19 @@ class RedSimulatorPipeline:
         if self.report:
             (self.reports_dir / "report.md").write_text(self.report)
 
-        print(f"  Resultats sauvegardes dans {self.reports_dir}")
+        logger.info("Resultats sauvegardes dans %s", self.reports_dir)
 
 
 if __name__ == "__main__":
     import argparse
 
+    setup_logging(settings.log_level, settings.log_format)
+
     parser = argparse.ArgumentParser(description="RedSimulator Pipeline")
     parser.add_argument(
         "--target",
-        default="http://localhost:3000",
-        help="URL de la cible (defaut: http://localhost:3000)",
+        default=settings.target_url,
+        help=f"URL de la cible (defaut: {settings.target_url})",
     )
     parser.add_argument(
         "--fixtures",
@@ -229,4 +232,4 @@ if __name__ == "__main__":
     pipeline = RedSimulatorPipeline(target_url=args.target)
     report = pipeline.run(use_fixtures=args.fixtures)
 
-    print("\n" + report)
+    logger.info("Rapport final:\n%s", report)

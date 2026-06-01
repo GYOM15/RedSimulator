@@ -9,7 +9,11 @@ import re
 
 from bs4 import BeautifulSoup
 
+from src.infra.logging import get_logger
+from src.infra.config import settings
 from .http_utils import safe_request, parallel_requests
+
+logger = get_logger(__name__)
 
 
 def detect_technologies(target: str) -> list[str]:
@@ -23,7 +27,7 @@ def detect_technologies(target: str) -> list[str]:
     Returns:
         Liste de technologies detectees (avec versions quand possible).
     """
-    print(f"[SCANNER] Detection des technologies sur {target}...")
+    logger.info("Detection des technologies sur %s...", target)
 
     resp, error = safe_request(target)
     if resp is None:
@@ -36,7 +40,7 @@ def detect_technologies(target: str) -> list[str]:
     techs.update(_detect_from_endpoints(target))
 
     result = sorted(techs)
-    print(f"[SCANNER] {len(result)} technologies detectees: {result}")
+    logger.info("%d technologies detectees: %s", len(result), result)
     return result
 
 
@@ -159,10 +163,10 @@ def _detect_from_js(html: str, target: str) -> set:
         else:
             js_urls.append(f"{base_url}/{src}")
 
-    print(f"  [*] Tech detector: analyse de {len(js_urls)}/{len(js_tags)} fichiers JS")
+    logger.debug("Tech detector: analyse de %d/%d fichiers JS", len(js_urls), len(js_tags))
 
     # Telecharger en parallele (timeout court)
-    results = parallel_requests([(url, "GET") for url in js_urls], timeout=3, max_workers=5)
+    results = parallel_requests([(url, "GET") for url in js_urls], timeout=settings.request_timeout, max_workers=settings.max_concurrent_requests)
 
     for url, method, resp in results:
         if not resp:
@@ -224,7 +228,7 @@ def _detect_from_endpoints(target: str) -> set:
                     techs.add(f"JWT ({clean_v})")
                 elif name == "sqlite3":
                     techs.add(f"SQLite3 {clean_v}")
-            print(f"  [!] package.json expose avec {len(deps)} dependances")
+            logger.debug("package.json expose avec %d dependances", len(deps))
         except Exception:
             pass
 
@@ -236,7 +240,7 @@ def _detect_from_endpoints(target: str) -> set:
             version = data.get("version", "")
             if version:
                 techs.add(f"Application {version}")
-                print(f"  [+] Version application: {version}")
+                logger.debug("Version application: %s", version)
         except Exception:
             pass
 

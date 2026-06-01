@@ -8,6 +8,9 @@ from pathlib import Path
 
 import torch
 
+from src.infra.decorators import logged
+from src.infra.logging import get_logger
+
 from .vae_model import (
     PayloadVAE,
     encode_payload,
@@ -16,7 +19,10 @@ from .vae_model import (
     START_IDX,
 )
 
+logger = get_logger(__name__)
 
+
+@logged
 def generate_variants(
     model: PayloadVAE,
     base_payload: str,
@@ -96,19 +102,19 @@ def generate_from_fixture(model: PayloadVAE, fixture_path: str | Path) -> None:
     data = json.loads(path.read_text())
     plan = AttackPlan.model_validate(data)
 
-    print(f"\n{'='*60}")
-    print("[GENERATOR] Generation de variantes de payloads")
-    print(f"{'='*60}")
+    logger.info("=" * 60)
+    logger.info("Generation de variantes de payloads")
+    logger.info("=" * 60)
 
     for vector in plan.vectors:
-        print(f"\n--- Vecteur {vector.id} ({vector.attack_type.value}) ---")
+        logger.info("--- Vecteur %s (%s) ---", vector.id, vector.attack_type.value)
         for base_payload in vector.base_payloads:
-            print(f"\n  Base: {base_payload}")
+            logger.info("  Base: %s", base_payload)
             variants = generate_variants(model, base_payload, n_variants=3)
             for i, v in enumerate(variants):
-                print(f"    Variante {i+1}: {v}")
+                logger.info("    Variante %d: %s", i + 1, v)
             if not variants:
-                print("    (aucune variante generee — modele pas assez entraine)")
+                logger.warning("    (aucune variante generee — modele pas assez entraine)")
 
 
 if __name__ == "__main__":
@@ -119,10 +125,10 @@ if __name__ == "__main__":
     model = PayloadVAE()
 
     if model_path.exists():
-        print(f"[GENERATOR] Chargement du modele depuis {model_path}")
+        logger.info("Chargement du modele depuis %s", model_path)
         model.load_state_dict(torch.load(model_path, weights_only=True))
     else:
-        print("[GENERATOR] Modele non trouve, utilisation du modele non entraine")
-        print("[GENERATOR] Lancez d'abord: python -m src.generator.train")
+        logger.warning("Modele non trouve, utilisation du modele non entraine")
+        logger.warning("Lancez d'abord: python -m src.generator.train")
 
     generate_from_fixture(model, fixture_path)

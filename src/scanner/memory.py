@@ -12,19 +12,23 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 
+from src.infra.logging import get_logger
+from src.infra.decorators import safe
+
+logger = get_logger(__name__)
+
 HISTORY_PATH = Path(__file__).parent.parent.parent / "data" / "scan_history.json"
 
 
+@safe(fallback={})
 def _load_history() -> dict:
     """Charge l'historique des scans."""
     if HISTORY_PATH.exists():
-        try:
-            return json.loads(HISTORY_PATH.read_text())
-        except (json.JSONDecodeError, OSError):
-            return {}
+        return json.loads(HISTORY_PATH.read_text())
     return {}
 
 
+@safe(fallback=None)
 def _save_history(history: dict):
     """Sauvegarde l'historique."""
     HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)

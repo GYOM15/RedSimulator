@@ -11,6 +11,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
+from src.infra.logging import get_logger
+from src.infra.config import settings
+from src.infra.decorators import retry
+
+logger = get_logger(__name__)
+
 # ---------- Cache HTTP en memoire (TTL 5 min) ----------
 
 _cache: dict[str, tuple[float, object]] = {}
@@ -49,7 +55,7 @@ def clear_cache():
 
 # ---------- Requetes HTTP ----------
 
-def safe_request(url: str, method: str = "GET", timeout: int = 3, json_body: dict | None = None):
+def safe_request(url: str, method: str = "GET", timeout: int | None = None, json_body: dict | None = None):
     """Effectue une requete HTTP avec gestion d'erreurs et cache.
 
     Les requetes GET sont mises en cache automatiquement (TTL 5 min).
@@ -58,12 +64,14 @@ def safe_request(url: str, method: str = "GET", timeout: int = 3, json_body: dic
     Args:
         url: URL cible
         method: GET, POST, PUT, DELETE
-        timeout: Timeout en secondes
+        timeout: Timeout en secondes (default: settings.request_timeout)
         json_body: Corps JSON pour les requetes POST/PUT
 
     Returns:
         (response, None) si OK, (None, message_erreur) sinon.
     """
+    if timeout is None:
+        timeout = settings.request_timeout
     # Cache uniquement pour GET sans body
     if method == "GET" and json_body is None:
         cached = _cache_get(url, method)
@@ -71,26 +79,33 @@ def safe_request(url: str, method: str = "GET", timeout: int = 3, json_body: dic
             return cached, None
 
     try:
-        if method == "POST":
-            resp = requests.post(url, json=json_body or {}, timeout=timeout, allow_redirects=False)
-        elif method == "PUT":
-            resp = requests.put(url, json=json_body or {}, timeout=timeout, allow_redirects=False)
-        elif method == "DELETE":
-            resp = requests.delete(url, timeout=timeout, allow_redirects=False)
-        else:
-            resp = requests.get(url, timeout=timeout, allow_redirects=False)
-
-        if resp.status_code >= 500:
-            return None, f"Erreur serveur: {resp.status_code}"
-
-        # Cacher les GET reussis
-        if method == "GET" and json_body is None:
-            _cache_set(url, method, resp)
-
-        return resp, None
-
+        return _do_request(url, method, timeout, json_body)
+    except (requests.ConnectionError, requests.Timeout) as e:
+        return None, str(e)
     except requests.RequestException as e:
         return None, str(e)
+
+
+@retry(max_attempts=2, base_delay=0.5, exceptions=(requests.ConnectionError, requests.Timeout))
+def _do_request(url: str, method: str, timeout: int, json_body: dict | None):
+    """Execute the actual HTTP request with retry on transient errors."""
+    if method == "POST":
+        resp = requests.post(url, json=json_body or {}, timeout=timeout, allow_redirects=False)
+    elif method == "PUT":
+        resp = requests.put(url, json=json_body or {}, timeout=timeout, allow_redirects=False)
+    elif method == "DELETE":
+        resp = requests.delete(url, timeout=timeout, allow_redirects=False)
+    else:
+        resp = requests.get(url, timeout=timeout, allow_redirects=False)
+
+    if resp.status_code >= 500:
+        return None, f"Erreur serveur: {resp.status_code}"
+
+    # Cacher les GET reussis
+    if method == "GET" and json_body is None:
+        _cache_set(url, method, resp)
+
+    return resp, None
 
 
 def parallel_requests(urls: list[tuple[str, str]], timeout: int = 3, max_workers: int = 10) -> list[tuple[str, str, object | None]]:

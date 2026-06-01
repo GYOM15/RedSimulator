@@ -8,7 +8,10 @@ une liste de faits exploitables par le moteur de regles.
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.infra.logging import get_logger
 from src.models import ScanResult
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -111,15 +114,15 @@ def scan_result_to_facts(scan: ScanResult) -> list[Fact]:
                 type="form",
                 attributes={
                     "endpoint": form.endpoint,
-                    "fields": form.fields,
+                    "fields": [f.name for f in form.fields],
                     "method": form.method,
                 },
             )
         )
 
-    print(f"[FACTS] {len(facts)} faits extraits du scan:")
+    logger.info("%d faits extraits du scan:", len(facts))
     for f in facts:
-        print(f"  - {f}")
+        logger.debug("  - %s", f)
 
     return facts
 
@@ -133,4 +136,4 @@ if __name__ == "__main__":
     scan = ScanResult.model_validate(data)
 
     facts = scan_result_to_facts(scan)
-    print(f"\nTotal: {len(facts)} faits")
+    logger.info("Total: %d faits", len(facts))
