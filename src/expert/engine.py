@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from src.infra.decorators import logged, timed
 from src.infra.exceptions import RuleError
 from src.infra.logging import get_logger
-from src.models import AttackPlan, AttackVector
+from src.models import AttackPlan, AttackVector, ScanResult
 from src.models.attack_plan import Severity
 
 from .facts import Fact
@@ -68,14 +68,26 @@ class ExpertEngine:
 
     @logged
     @timed
-    def run(self, scan_id: str = "scan-001") -> AttackPlan:
+    def run(
+        self,
+        scan_id: str = "scan-001",
+        scan: ScanResult | None = None,
+        llm_second_pass: bool = True,
+    ) -> AttackPlan:
         """Execute le chainage avant et produit un AttackPlan.
 
         L'algorithme boucle tant qu'au moins une regle s'active a chaque iteration.
         A chaque iteration, les regles sont evaluees dans l'ordre de priorite.
 
+        After rules have fired, an optional LLM analyst reviews the scan
+        results and the rule-generated plan to find vulnerabilities that
+        deterministic rules may have missed.
+
         Args:
             scan_id: Identifiant du scan source.
+            scan: Raw ScanResult for LLM second-pass analysis (optional).
+            llm_second_pass: Whether to run the LLM analyst after rules.
+                Defaults to True but silently skips if no API key is set.
 
         Returns:
             AttackPlan contenant les vecteurs d'attaque identifies.
@@ -151,12 +163,26 @@ class ExpertEngine:
         logger.info("Vecteurs d'attaque: %d", len(self.attack_vectors))
         logger.info("=" * 60)
 
-        return AttackPlan(
+        plan = AttackPlan(
             scan_id=scan_id,
             generated_at=datetime.now(UTC).isoformat(),
             vectors=self.attack_vectors,
             rules_fired=self.fired_rules,
         )
+
+        # --- LLM second pass: find vulnerabilities rules may have missed ---
+        if llm_second_pass and scan is not None:
+            from .llm_analyst import llm_analyze
+
+            try:
+                llm_vectors = llm_analyze(scan, plan)
+                if llm_vectors:
+                    plan.vectors.extend(llm_vectors)
+                    logger.info("LLM analyst added %d additional vectors", len(llm_vectors))
+            except Exception as e:
+                logger.warning("LLM analysis skipped: %s", e)
+
+        return plan
 
 
 if __name__ == "__main__":
@@ -180,7 +206,7 @@ if __name__ == "__main__":
     engine = ExpertEngine()
     engine.inject_facts(facts)
     engine.load_rules(get_all_rules())
-    plan = engine.run()
+    plan = engine.run(scan=scan)
 
     logger.info("=== Attack Plan ===")
     logger.info(plan.model_dump_json(indent=2))

@@ -30,8 +30,8 @@ engine = ExpertEngine()
 engine.inject_facts(facts)
 engine.load_rules(get_all_rules())
 
-# Etape 3: Lancer le chainage avant
-plan = engine.run()
+# Etape 3: Lancer le chainage avant (with optional LLM second pass)
+plan = engine.run(scan=scan)
 
 # Etape 4: Afficher le resultat
 logger.info("=== Plan d'Attaque Genere ===")

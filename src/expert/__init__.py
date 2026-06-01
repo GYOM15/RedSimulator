@@ -6,6 +6,18 @@ a partir des faits extraits du scan.
 
 from .engine import ExpertEngine, Rule
 from .facts import Fact, scan_result_to_facts
+from .llm_analyst import llm_analyze
 from .rules import get_all_rules
+from .rules_chaining import get_chaining_rules
+from .rules_header import get_header_rules
 
-__all__ = ["ExpertEngine", "Fact", "Rule", "get_all_rules", "scan_result_to_facts"]
+__all__ = [
+    "ExpertEngine",
+    "Fact",
+    "Rule",
+    "get_all_rules",
+    "get_chaining_rules",
+    "get_header_rules",
+    "llm_analyze",
+    "scan_result_to_facts",
+]
