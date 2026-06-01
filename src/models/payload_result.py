@@ -1,7 +1,7 @@
 """Modeles Pydantic pour les resultats de generation de payloads.
 
-Ces modeles representent la sortie du module VAE. Pour chaque vecteur
-d'attaque, le VAE genere des variantes du payload de base.
+Ces modeles representent la sortie du module payload generator. Pour chaque
+vecteur d'attaque, le generateur produit des variantes du payload de base.
 """
 
 from pydantic import BaseModel, ConfigDict

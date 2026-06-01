@@ -10,7 +10,7 @@ import usePipeline from "./hooks/usePipeline";
 import Sidebar from "./components/Sidebar";
 import ScannerView from "./components/ScannerView";
 import ExpertView from "./components/ExpertView";
-import VAEView from "./components/VAEView";
+import GeneratorView from "./components/VAEView";
 import AttackView from "./components/AttackView";
 import ReportView from "./components/ReportView";
 import ChatView from "./components/ChatView";
@@ -35,7 +35,7 @@ export default function App() {
     switch (activeView) {
       case "scanning": return <ScannerView logs={scanLogs} agentSteps={agentSteps} endpoints={endpoints} ports={ports} techs={techs} headers={missingHeaders} forms={forms} stats={scanStats} />;
       case "expert": return <ExpertView rules={rules} vectors={vectors} />;
-      case "vae": return <VAEView payloads={payloads} />;
+      case "generator": return <GeneratorView payloads={payloads} />;
       case "attacking": return <AttackView attacks={attacks} stats={attackStats} />;
       case "reporting": return <ReportView text={reportText} />;
       default: return null;
@@ -44,7 +44,7 @@ export default function App() {
 
   const viewTitle = () => {
     if (showChat) return "Chatbot RAG";
-    const labels = { scanning: "Scanner — Reconnaissance", expert: "Systeme Expert — Analyse", vae: "Generateur VAE — Mutations", attacking: "Executeur — Attaques", reporting: "Rapporteur — Generation", summary: "Recapitulatif" };
+    const labels = { scanning: "Scanner — Reconnaissance", expert: "Systeme Expert — Analyse", generator: "Generateur — Mutations", attacking: "Executeur — Attaques", reporting: "Rapporteur — Generation", summary: "Recapitulatif" };
     return labels[activeView] || "";
   };
 

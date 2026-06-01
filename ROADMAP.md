@@ -29,7 +29,7 @@ python3 -m src.orchestrator --fixtures
 
 # Modules individuels
 python3 -m src.expert           # Systeme expert seul
-python3 -m src.generator        # VAE seul
+python3 -m src.generator        # Generator seul
 python3 -m src.executor         # Executor seul
 python3 -m src.reporter         # Reporter + RAG seul
 python3 -m src.scanner --fixtures  # Scanner avec fixture
@@ -93,7 +93,7 @@ python3 -m src.orchestrator --target http://localhost:3000
 | Modeles Pydantic | `src/models/*.py` | Done — contrat entre modules |
 | Fixtures JSON | `data/fixtures/*.json` | Done — donnees simulees |
 | Systeme Expert | `src/expert/engine.py`, `rules.py`, `facts.py` | Done (scaffold) |
-| Generator (VAE) | `src/generator/vae_model.py`, `train.py`, `generate.py` | Done (scaffold) |
+| Generator (LLM + Offline) | `src/generator/offline_mutator.py`, `llm_mutator.py`, `generate.py` | Done (scaffold) |
 | Executor | `src/executor/runner.py` | Done (scaffold) |
 | Reporter | `src/reporter/report_generator.py` | Done (scaffold) |
 | RAG Chatbot | `src/reporter/rag_chatbot.py` | Done (scaffold) |
@@ -135,13 +135,13 @@ python3 -m src.orchestrator --target http://localhost:3000
 - [ ] Ajouter la correlation entre vulnerabilites (chaines d'attaques)
 - [ ] Valider les regles avec les resultats du vrai scan
 
-### 3. Generator / VAE (`src/generator/`)
+### 3. Generator / LLM + Offline (`src/generator/`)
 
 - [ ] Enrichir `data/payloads/sqli_payloads.txt` avec plus de payloads
 - [ ] Ajouter des datasets pour XSS, command injection, path traversal
-- [ ] Tuner les hyperparametres du VAE (latent_dim, epochs, lr)
+- [ ] Affiner les prompts LLM pour la generation de variantes
 - [ ] Ajouter des metriques de qualite des payloads generes
-- [ ] Sauvegarder/charger le modele entraine (`data/vae_model.pt`)
+- [ ] Ameliorer le fallback offline avec plus de strategies de mutation
 
 ### 4. Executor (`src/executor/`)
 
@@ -213,12 +213,11 @@ python3 -m src.orchestrator --target http://localhost:3000
 |---------|-------|
 | `pydantic` | Modeles de donnees et validation |
 | `langchain` + `langgraph` | Agent ReAct |
-| `langchain-anthropic` | LLM Claude |
+| `langchain-anthropic` | LLM Claude (agent, generation de payloads, rapport) |
 | `requests` | Requetes HTTP |
 | `beautifulsoup4` | Parsing HTML statique |
 | `playwright` | Analyse dynamique des SPA (Chromium headless) |
 | `python-nmap` | Scan de ports (optionnel) |
-| `torch` | VAE (generateur de payloads) |
 | `chromadb` | Base vectorielle pour le RAG |
 | `streamlit` + `plotly` | Dashboard |
 | `python-dotenv` | Variables d'environnement |

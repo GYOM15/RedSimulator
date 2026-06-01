@@ -13,7 +13,7 @@ The result is a modular pipeline that chains five distinct AI techniques — eac
 The pipeline follows a sequential flow where each module's output feeds directly into the next:
 
 ```
-Scanner (ReAct) → Expert System → VAE Generator → Executor → Reporter (RAG)
+Scanner (ReAct) → Expert System → Payload Generator → Executor → Reporter (RAG)
 ```
 
 Every module communicates through strict **Pydantic models**, which act as typed contracts. This means each component can be developed, tested, and improved independently — a module only needs to produce the right data shape.
@@ -49,17 +49,17 @@ Rule 3 is the interesting one — it depends on Rule 1 having already fired. Thi
 
 The output is a structured `AttackPlan` containing prioritized attack vectors with target endpoints, fields, and base payloads.
 
-### 3. Variational Autoencoder — Payload mutation
+### 3. LLM-based Generator with Offline Fallback — Payload mutation
 
 Security testing benefits from payload diversity. A WAF (Web Application Firewall) might block `' OR 1=1--` but let through a semantically equivalent variant.
 
-The generator uses a **character-level VAE** (Variational Autoencoder) built with PyTorch:
-- **Encoder**: Embedding → GRU → latent space (16 dimensions)
-- **Decoder**: latent vector → GRU → character probabilities
+The generator uses a **dual-strategy approach**:
+- **LLM mutator**: leverages Claude to generate semantically equivalent payload variants with context-aware mutations
+- **Offline mutator**: deterministic, rule-based transformations (encoding tricks, whitespace manipulation, comment injection, case variations) that work without an API key
 
-To generate variants, the model encodes a base payload into latent space, samples nearby points with controlled noise, and decodes them back into strings. Temperature controls the exploration-exploitation tradeoff: low temperature produces conservative mutations, high temperature produces more creative (but potentially broken) variants.
+When an LLM API key is available, the generator produces creative, context-aware variants. Without one, the offline fallback applies deterministic mutation strategies drawn from curated payload datasets. Both strategies filter duplicates and the original payload from the output.
 
-The model trains on a curated dataset of ~50 SQLi payloads in under a minute. The architecture is intentionally minimal — it's a foundation to build on with larger datasets and better quality filters.
+The offline mutator covers SQLi, XSS, IDOR, and path traversal attack types, each with type-specific mutation rules derived from real-world bypass techniques.
 
 ### 4. Attack Executor
 
@@ -81,12 +81,12 @@ The UI includes severity distribution charts, attack success rates, and an integ
 
 ## Current status and next steps
 
-The scanner, orchestrator, API, and frontend are fully implemented. The expert system, VAE generator, executor, and reporter are functional scaffolds — they work end-to-end but need deeper implementation.
+The scanner, orchestrator, API, and frontend are fully implemented. The expert system, payload generator, executor, and reporter are functional scaffolds — they work end-to-end but need deeper implementation.
 
 Immediate priorities:
 - Expanding the expert system with more OWASP rules and chaining scenarios
 - Adding XSS, IDOR, and path traversal to the executor
-- Improving VAE output quality with larger datasets and better filtering
+- Improving payload generation quality with LLM prompt tuning and expanded offline mutation rules
 - Connecting ChromaDB in production mode for the RAG chatbot
 
 ## Lessons learned

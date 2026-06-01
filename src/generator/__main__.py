@@ -3,32 +3,32 @@
 Usage: python -m src.generator
 """
 
+import json
 from pathlib import Path
-
-import torch
 
 from src.infra.config import settings
 from src.infra.logging import get_logger, setup_logging
+from src.models import AttackPlan
 
-from .generate import generate_from_fixture
-from .vae_model import PayloadVAE
+from .generate import generate_for_plan
 
-setup_logging()
+setup_logging(settings.log_level, settings.log_format)
 logger = get_logger(__name__)
 
 data_dir = Path(__file__).parent.parent.parent / "data"
-model_path = Path(settings.vae_model_path)
-if not model_path.is_absolute():
-    model_path = data_dir.parent / model_path
 fixture_path = data_dir / "fixtures" / "attack_plan.json"
 
-model = PayloadVAE()
+if not fixture_path.exists():
+    logger.error("Fixture non trouvee: %s", fixture_path)
+    raise SystemExit(1)
 
-if model_path.exists():
-    logger.info("Chargement du modele depuis %s", model_path)
-    model.load_state_dict(torch.load(model_path, weights_only=True))
-else:
-    logger.warning("Modele non trouve, utilisation du modele non entraine")
-    logger.warning("Lancez d'abord: python -m src.generator.train")
+logger.info("Chargement du plan d'attaque depuis %s", fixture_path)
 
-generate_from_fixture(model, fixture_path)
+data = json.loads(fixture_path.read_text())
+plan = AttackPlan.model_validate(data)
+
+result = generate_for_plan(plan)
+
+logger.info("Resultats: %d payloads generes", len(result.payloads))
+for gp in result.payloads:
+    logger.info("  [%s] %s -> %d variantes", gp.vector_id, gp.original[:40], len(gp.variants))

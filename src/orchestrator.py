@@ -136,34 +136,9 @@ class RedSimulatorPipeline:
             self.payload_result = PayloadResult.model_validate(data)
             logger.info("Fixture chargee: %d payloads", len(self.payload_result.payloads))
         else:
-            import torch
+            from src.generator.generate import generate_for_plan
 
-            from src.generator.generate import generate_variants
-            from src.generator.vae_model import PayloadVAE
-            from src.models import GeneratedPayload
-
-            model = PayloadVAE()
-            model_path = self.data_dir / "vae_model.pt"
-
-            if model_path.exists():
-                model.load_state_dict(torch.load(model_path, weights_only=True))
-                logger.info("Modele charge depuis %s", model_path)
-            else:
-                logger.warning("Modele non entraine, generation avec modele aleatoire")
-
-            payloads = []
-            for vector in self.attack_plan.vectors:
-                for base in vector.base_payloads:
-                    variants = generate_variants(model, base, n_variants=3)
-                    payloads.append(
-                        GeneratedPayload(
-                            vector_id=vector.id,
-                            original=base,
-                            variants=variants,
-                        )
-                    )
-
-            self.payload_result = PayloadResult(payloads=payloads)
+            self.payload_result = generate_for_plan(self.attack_plan)
 
     def _run_executor(self, use_fixtures: bool) -> None:
         """Execute ou charge l'executeur d'attaques."""

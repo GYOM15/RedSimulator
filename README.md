@@ -4,7 +4,6 @@
   <img src="https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React" />
   <img src="https://img.shields.io/badge/FastAPI-0.100+-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
-  <img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch" />
   <img src="https://img.shields.io/badge/LangChain-0.2+-1C3C3C?logo=langchain&logoColor=white" alt="LangChain" />
   <img src="https://img.shields.io/badge/Claude-Anthropic-D4A574?logo=anthropic&logoColor=white" alt="Claude" />
   <img src="https://img.shields.io/badge/Playwright-1.40+-2EAD33?logo=playwright&logoColor=white" alt="Playwright" />
@@ -24,13 +23,13 @@ AI-powered automated security testing tool that chains 5 AI modules to scan, ana
 ```
    ┌──────────┐    ┌──────────┐    ┌───────────┐    ┌──────────┐    ┌──────────┐
    │ Scanner  │───>│  Expert  │───>│ Generator │───>│ Executor │───>│ Reporter │
-   │  (ReAct) │    │ (Rules)  │    │   (VAE)   │    │(Attacks) │    │(RAG+LLM) │
+   │  (ReAct) │    │ (Rules)  │    │(LLM+Offline)│   │(Attacks) │    │(RAG+LLM) │
    └──────────┘    └──────────┘    └───────────┘    └──────────┘    └──────────┘
 ```
 
 1. **Scanner** — Autonomous ReAct agent (LangGraph + Claude) for reconnaissance
 2. **Expert** — Forward-chaining expert system (OWASP rules)
-3. **Generator** — VAE (PyTorch) for generating payload variants
+3. **Generator** — LLM-based payload generation with offline mutation fallback
 4. **Executor** — Runs attacks against the target
 5. **Reporter** — Generates a report + RAG chatbot
 
@@ -50,7 +49,7 @@ The React web interface communicates with the FastAPI backend via **Server-Sent 
 | React Frontend | ✅ Complete | 5-phase UI, charts, RAG chat, dark theme |
 | Docker | ✅ Complete | Juice Shop + ChromaDB + recon-tools (nmap, ffuf, subfinder) |
 | Expert System | 🔧 Scaffold | 3 rules implemented (SQLi, XSS, SQLi→CRITICAL chaining), 5+ to add |
-| Generator (VAE) | 🔧 Scaffold | Architecture + basic training, quality to improve |
+| Generator (LLM + Offline) | 🔧 Scaffold | LLM-based generation with deterministic offline fallback |
 | Executor | 🔧 Scaffold | SQLi implemented, 3 attack types to add |
 | Reporter | 🔧 Scaffold | Template report + basic RAG with in-memory fallback |
 | Tests | 🔧 Partial | Models + expert + generator covered |
@@ -58,7 +57,7 @@ The React web interface communicates with the FastAPI backend via **Server-Sent 
 ### Still to implement
 
 - **Expert**: IDOR, PATH_TRAVERSAL, AUTH_BYPASS, INFO_DISCLOSURE rules, advanced chaining (CHAIN_BYPASS_EXFIL)
-- **Generator**: XSS/command injection datasets, hyperparameter tuning, quality metrics
+- **Generator**: XSS/command injection datasets, LLM prompt tuning, quality metrics
 - **Executor**: XSS, IDOR, path traversal attacks, session/auth handling
 - **Reporter**: Claude API generation, PDF export, CVSS scores
 - **RAG**: Production ChromaDB, semantic embeddings, conversation history
@@ -172,8 +171,7 @@ pytest tests/ -v
 |---------|-------|
 | `pydantic` | Data models and validation |
 | `langchain` + `langgraph` | ReAct agent |
-| `langchain-anthropic` | Claude LLM |
-| `torch` | VAE (payload generator) |
+| `langchain-anthropic` | Claude LLM (agent, payload generation, reporting) |
 | `chromadb` | Vector database for RAG |
 | `playwright` | Dynamic SPA analysis |
 | `fastapi` + `sse-starlette` | Backend API with streaming |

@@ -1,10 +1,10 @@
-"""Module Generateur — VAE PyTorch pour la generation de variantes de payloads.
+"""Module Generateur — Generation de variantes de payloads via LLM + fallback offline.
 
-Utilise un Variational Autoencoder (VAE) avec encodeur/decodeur GRU
-pour apprendre la distribution latente des payloads et generer des variantes.
+Utilise l'API Claude pour generer des variantes intelligentes de payloads,
+avec un fallback sur des mutations deterministes hors-ligne si l'API
+n'est pas disponible.
 """
 
-from .generate import generate_variants
-from .vae_model import PayloadVAE
+from .generate import generate_for_plan, generate_variants
 
-__all__ = ["PayloadVAE", "generate_variants"]
+__all__ = ["generate_for_plan", "generate_variants"]

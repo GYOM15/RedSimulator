@@ -39,7 +39,7 @@ export const API = "/api";
 export const STEPS = [
   { id: "scanning", name: "Scanner", tech: "Agent ReAct" },
   { id: "expert", name: "Analyseur", tech: "Systeme expert" },
-  { id: "vae", name: "Generateur", tech: "VAE" },
+  { id: "generator", name: "Generateur", tech: "LLM + Offline" },
   { id: "attacking", name: "Executeur", tech: "Attaques" },
   { id: "reporting", name: "Rapporteur", tech: "LLM" },
 ];

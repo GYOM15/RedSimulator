@@ -325,7 +325,7 @@ async def _run_pipeline(target: str, use_fixtures: bool):
         return
 
     # ── ETAPE 3 : GENERATOR ──
-    yield _sse("phase", {"phase": "vae", "label": "Generator VAE — Mutations"})
+    yield _sse("phase", {"phase": "generator", "label": "Generator — Mutations"})
     await asyncio.sleep(0.3)
 
     try:
@@ -335,7 +335,9 @@ async def _run_pipeline(target: str, use_fixtures: bool):
             data = json.loads((fixtures_dir / "payload_result.json").read_text())
             payload_result = PayloadResult.model_validate(data)
         else:
-            payload_result = PayloadResult(payloads=[])
+            from src.generator.generate import generate_for_plan
+
+            payload_result = generate_for_plan(attack_plan)
 
         for p in payload_result.payloads:
             p_data = json.loads(p.model_dump_json())
@@ -343,11 +345,11 @@ async def _run_pipeline(target: str, use_fixtures: bool):
             await asyncio.sleep(0.25)
 
         yield _sse("generator_result", {"payloads": len(payload_result.payloads)})
-        yield _sse("phase_done", {"phase": "vae"})
+        yield _sse("phase_done", {"phase": "generator"})
         await asyncio.sleep(0.5)
 
     except Exception as e:
-        yield _sse("error", _safe_error_payload("vae", e))
+        yield _sse("error", _safe_error_payload("generator", e))
         return
 
     # ── ETAPE 4 : EXECUTOR ──

@@ -186,20 +186,14 @@ class RuleError(ExpertError):
 
 
 # ---------------------------------------------------------------------------
-# Generator (VAE / payload generation)
+# Generator (LLM / offline payload generation)
 # ---------------------------------------------------------------------------
 
 
 class GeneratorError(RedSimulatorError):
-    """VAE or payload generation failure."""
+    """Payload generation failure (LLM or offline)."""
 
     code: str = "GENERATOR_ERROR"
-
-
-class TrainingError(GeneratorError):
-    """Model training failure inside the Generator."""
-
-    code: str = "TRAINING_ERROR"
 
 
 # ---------------------------------------------------------------------------

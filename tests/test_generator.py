@@ -1,102 +1,78 @@
-"""Tests du module generateur VAE.
+"""Tests du module generateur de payloads.
 
-Verifie que le VAE compile, que l'entrainement reduit la loss,
-et que les variantes generees sont differentes du payload de base.
+Verifie que les mutations offline generent des variantes valides
+et que l'orchestrateur generate_variants fonctionne correctement.
 """
 
-import torch
-
 from src.generator.generate import generate_variants
-from src.generator.vae_model import (
-    MAX_LEN,
-    VOCAB_SIZE,
-    PayloadVAE,
-    decode_indices,
-    encode_payload,
-    vae_loss,
-)
+from src.generator.offline_mutator import mutate_payload
 
 
-class TestVAEModel:
-    """Tests de l'architecture du VAE."""
+class TestOfflineMutator:
+    """Tests des mutations deterministes hors-ligne."""
 
-    def test_model_compiles(self):
-        model = PayloadVAE()
-        assert model is not None
+    def test_sqli_mutations(self):
+        """Les mutations SQLi doivent produire des variantes."""
+        variants = mutate_payload("' OR 1=1--", "sqli", n_variants=5)
+        assert isinstance(variants, list)
+        assert len(variants) > 0
+        assert all(v != "' OR 1=1--" for v in variants)
 
-    def test_forward_shapes(self):
-        model = PayloadVAE()
-        batch = torch.tensor([encode_payload("' OR 1=1--")])
-        logits, mu, logvar = model(batch)
+    def test_xss_mutations(self):
+        """Les mutations XSS doivent produire des variantes."""
+        variants = mutate_payload("<script>alert('xss')</script>", "xss", n_variants=5)
+        assert isinstance(variants, list)
+        assert len(variants) > 0
+        assert all(v != "<script>alert('xss')</script>" for v in variants)
 
-        assert logits.shape == (1, MAX_LEN, VOCAB_SIZE)
-        assert mu.shape == (1, 16)  # latent_dim = 16
-        assert logvar.shape == (1, 16)
+    def test_idor_mutations(self):
+        """Les mutations IDOR doivent produire des variantes."""
+        variants = mutate_payload("/rest/basket/1", "idor", n_variants=5)
+        assert isinstance(variants, list)
+        assert len(variants) > 0
+        assert all(v != "/rest/basket/1" for v in variants)
 
-    def test_encode_decode_roundtrip(self):
-        payload = "' OR 1=1--"
-        encoded = encode_payload(payload)
-        decoded = decode_indices(encoded)
-        assert decoded == payload
+    def test_path_traversal_mutations(self):
+        """Les mutations path_traversal doivent produire des variantes."""
+        variants = mutate_payload("../../etc/passwd", "path_traversal", n_variants=5)
+        assert isinstance(variants, list)
+        assert len(variants) > 0
+        assert all(v != "../../etc/passwd" for v in variants)
 
-    def test_loss_computes(self):
-        model = PayloadVAE()
-        batch = torch.tensor([encode_payload("test")])
-        logits, mu, logvar = model(batch)
-        total, recon, kl = vae_loss(logits, batch, mu, logvar)
+    def test_unknown_type_uses_generic(self):
+        """Un type inconnu doit utiliser les mutations generiques."""
+        variants = mutate_payload("test_payload", "unknown_type", n_variants=3)
+        assert isinstance(variants, list)
+        assert len(variants) > 0
 
-        assert total.item() > 0
-        assert recon.item() > 0
-        assert kl.item() >= 0
+    def test_variants_are_unique(self):
+        """Les variantes ne doivent pas contenir de doublons."""
+        variants = mutate_payload("' OR 1=1--", "sqli", n_variants=10)
+        assert len(variants) == len(set(variants))
 
-
-class TestTraining:
-    """Tests de l'entrainement."""
-
-    def test_training_reduces_loss(self):
-        """Verifie que quelques epochs reduisent la loss."""
-        model = PayloadVAE()
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-
-        payloads = ["' OR 1=1--", "admin'--", "' OR '1'='1'--"]
-        batch = torch.tensor([encode_payload(p) for p in payloads])
-
-        # Premiere loss
-        model.train()
-        logits, mu, logvar = model(batch)
-        initial_loss, _, _ = vae_loss(logits, batch, mu, logvar)
-        initial_loss_val = initial_loss.item()
-
-        # Entrainer 20 epochs
-        for _ in range(20):
-            optimizer.zero_grad()
-            logits, mu, logvar = model(batch)
-            loss, _, _ = vae_loss(logits, batch, mu, logvar)
-            loss.backward()
-            optimizer.step()
-
-        # Loss finale
-        logits, mu, logvar = model(batch)
-        final_loss, _, _ = vae_loss(logits, batch, mu, logvar)
-        final_loss_val = final_loss.item()
-
-        assert final_loss_val < initial_loss_val, (
-            f"La loss devrait diminuer: {initial_loss_val:.4f} → {final_loss_val:.4f}"
-        )
+    def test_n_variants_respected(self):
+        """Le nombre de variantes demandees doit etre respecte (ou moins si pas assez)."""
+        variants = mutate_payload("' OR 1=1--", "sqli", n_variants=3)
+        assert len(variants) <= 3
 
 
-class TestGeneration:
-    """Tests de la generation de variantes."""
+class TestGenerateVariants:
+    """Tests de la fonction orchestratrice generate_variants."""
 
     def test_generate_returns_list(self):
-        model = PayloadVAE()
-        variants = generate_variants(model, "' OR 1=1--", n_variants=3)
+        """generate_variants doit retourner une liste."""
+        variants = generate_variants("' OR 1=1--", attack_type="sqli", n_variants=3)
         assert isinstance(variants, list)
 
     def test_variants_differ_from_base(self):
         """Les variantes doivent etre differentes du payload de base."""
-        model = PayloadVAE()
         base = "' OR 1=1--"
-        variants = generate_variants(model, base, n_variants=5, temperature=1.0)
+        variants = generate_variants(base, attack_type="sqli", n_variants=5)
         for v in variants:
             assert v != base, f"Variante identique au base: {v}"
+
+    def test_generate_with_attack_type(self):
+        """generate_variants doit accepter un attack_type."""
+        variants = generate_variants("<script>alert(1)</script>", attack_type="xss", n_variants=3)
+        assert isinstance(variants, list)
+        assert len(variants) > 0

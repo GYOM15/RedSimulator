@@ -1,131 +1,127 @@
-"""Generation de variantes de payloads avec le VAE.
+"""Orchestrateur de generation de variantes de payloads.
 
-Encode un payload de base, echantillonne autour de son vecteur latent,
-et decode pour obtenir des variantes syntaxiquement proches mais differentes.
+Tente d'abord la generation via LLM (Claude API), puis se rabat
+sur les mutations deterministes hors-ligne en cas d'echec ou
+d'absence de cle API.
 """
 
-from pathlib import Path
+from __future__ import annotations
 
-import torch
-
-from src.infra.decorators import logged
+from src.infra.config import settings
+from src.infra.decorators import logged, timed
+from src.infra.exceptions import LLMError
 from src.infra.logging import get_logger
+from src.models import AttackPlan, GeneratedPayload, PayloadResult
 
-from .vae_model import (
-    MAX_LEN,
-    START_IDX,
-    PayloadVAE,
-    decode_indices,
-    encode_payload,
-)
+from .llm_mutator import mutate_with_llm
+from .offline_mutator import mutate_payload
 
 logger = get_logger(__name__)
 
 
 @logged
 def generate_variants(
-    model: PayloadVAE,
     base_payload: str,
+    attack_type: str = "sqli",
     n_variants: int = 5,
-    temperature: float = 0.5,
-    noise_scale: float = 0.5,
 ) -> list[str]:
-    """Genere des variantes d'un payload en echantillonnant autour de son embedding latent.
+    """Genere des variantes d'un payload avec fallback automatique.
+
+    Si une cle API Anthropic est configuree, utilise le LLM pour generer
+    des variantes intelligentes. En cas d'echec ou d'absence de cle,
+    se rabat sur les mutations deterministes hors-ligne.
 
     Args:
-        model: Modele VAE entraine.
         base_payload: Payload de base a varier.
+        attack_type: Type d'attaque (sqli, xss, idor, path_traversal, etc.).
         n_variants: Nombre de variantes a generer.
-        temperature: Temperature pour le sampling (plus haut = plus divers).
-        noise_scale: Amplitude du bruit ajoute au vecteur latent.
 
     Returns:
-        Liste de variantes uniques et differentes du payload de base.
+        Liste de variantes uniques differentes du payload de base.
     """
-    model.eval()
+    # Tentative LLM si cle API disponible
+    if settings.anthropic_api_key:
+        try:
+            logger.info("Mode LLM: generation via Claude API")
+            variants = mutate_with_llm(
+                payload=base_payload,
+                attack_type=attack_type,
+                n_variants=n_variants,
+            )
+            if variants:
+                return variants
+            logger.warning("LLM n'a retourne aucune variante, fallback offline")
+        except (LLMError, Exception) as e:
+            logger.warning("Echec LLM (%s), fallback sur mutations offline", e)
+    else:
+        logger.info("Mode offline: pas de cle API Anthropic configuree")
 
-    with torch.no_grad():
-        # Encoder le payload de base
-        encoded = torch.tensor([encode_payload(base_payload)], dtype=torch.long)
-        mu, _logvar = model.encode(encoded)
+    # Fallback : mutations deterministes hors-ligne
+    variants = mutate_payload(
+        payload=base_payload,
+        attack_type=attack_type,
+        n_variants=n_variants,
+    )
 
-        variants = []
-        attempts = 0
-        max_attempts = n_variants * 5  # Eviter les boucles infinies
-
-        while len(variants) < n_variants and attempts < max_attempts:
-            attempts += 1
-
-            # Echantillonner autour du vecteur latent
-            noise = torch.randn_like(mu) * noise_scale
-            z = mu + noise
-
-            # Decoder avec sampling par temperature
-            hidden = model.latent_to_hidden(z).unsqueeze(0)
-            input_token = torch.full((1, 1), START_IDX, dtype=torch.long)
-            generated_indices = []
-
-            for _ in range(MAX_LEN):
-                embedded = model.embedding(input_token)
-                output, hidden = model.decoder_gru(embedded, hidden)
-                logits = model.output_layer(output).squeeze(1)
-
-                # Appliquer la temperature
-                probs = torch.softmax(logits / temperature, dim=-1)
-                next_token = torch.multinomial(probs, 1)
-
-                generated_indices.append(next_token.item())
-                input_token = (
-                    next_token.unsqueeze(0) if next_token.dim() == 1 else next_token.view(1, 1)
-                )
-
-            # Decoder les indices en texte
-            variant = decode_indices(generated_indices)
-
-            # Filtrer : non vide, different du base, pas deja genere
-            if variant and variant != base_payload and variant not in variants and len(variant) > 2:
-                variants.append(variant)
+    if not variants:
+        logger.warning(
+            "Aucune variante generee pour '%s' (type=%s)",
+            base_payload[:50],
+            attack_type,
+        )
 
     return variants
 
 
-def generate_from_fixture(model: PayloadVAE, fixture_path: str | Path) -> None:
-    """Genere des variantes pour chaque payload du plan d'attaque fixture."""
-    import json
+@logged
+@timed
+def generate_for_plan(attack_plan: AttackPlan) -> PayloadResult:
+    """Genere des variantes de payloads pour un plan d'attaque complet.
 
-    from src.models import AttackPlan
+    Parcourt chaque vecteur du plan et genere des variantes pour
+    chacun de ses payloads de base.
 
-    path = Path(fixture_path)
-    data = json.loads(path.read_text())
-    plan = AttackPlan.model_validate(data)
+    Args:
+        attack_plan: Plan d'attaque contenant les vecteurs et payloads de base.
 
+    Returns:
+        PayloadResult contenant tous les payloads generes.
+    """
     logger.info("=" * 60)
     logger.info("Generation de variantes de payloads")
     logger.info("=" * 60)
 
-    for vector in plan.vectors:
+    payloads: list[GeneratedPayload] = []
+
+    for vector in attack_plan.vectors:
         logger.info("--- Vecteur %s (%s) ---", vector.id, vector.attack_type.value)
+
         for base_payload in vector.base_payloads:
             logger.info("  Base: %s", base_payload)
-            variants = generate_variants(model, base_payload, n_variants=3)
+            variants = generate_variants(
+                base_payload=base_payload,
+                attack_type=vector.attack_type.value,
+                n_variants=5,
+            )
+
             for i, v in enumerate(variants):
                 logger.info("    Variante %d: %s", i + 1, v)
+
             if not variants:
-                logger.warning("    (aucune variante generee — modele pas assez entraine)")
+                logger.warning("    (aucune variante generee)")
 
+            payloads.append(
+                GeneratedPayload(
+                    vector_id=vector.id,
+                    original=base_payload,
+                    variants=variants,
+                )
+            )
 
-if __name__ == "__main__":
-    data_dir = Path(__file__).parent.parent.parent / "data"
-    model_path = data_dir / "vae_model.pt"
-    fixture_path = data_dir / "fixtures" / "attack_plan.json"
-
-    model = PayloadVAE()
-
-    if model_path.exists():
-        logger.info("Chargement du modele depuis %s", model_path)
-        model.load_state_dict(torch.load(model_path, weights_only=True))
-    else:
-        logger.warning("Modele non trouve, utilisation du modele non entraine")
-        logger.warning("Lancez d'abord: python -m src.generator.train")
-
-    generate_from_fixture(model, fixture_path)
+    result = PayloadResult(payloads=payloads)
+    logger.info(
+        "Generation terminee: %d payloads generes pour %d vecteurs",
+        len(payloads),
+        len(attack_plan.vectors),
+    )
+    return result

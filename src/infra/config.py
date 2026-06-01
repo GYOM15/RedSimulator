@@ -113,23 +113,11 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
-    # VAE (generative payload) settings
+    # Generator settings
     # ------------------------------------------------------------------
-    vae_model_path: str = Field(
-        default="data/vae_model.pt",
-        description="Filesystem path to the trained VAE model weights.",
-    )
-    vae_epochs: int = Field(
-        default=50,
-        description="Number of training epochs for the VAE.",
-    )
-    vae_latent_dim: int = Field(
-        default=16,
-        description="Dimensionality of the VAE latent space.",
-    )
-    vae_learning_rate: float = Field(
-        default=0.001,
-        description="Learning rate for VAE training.",
+    generator_n_variants: int = Field(
+        default=5,
+        description="Default number of payload variants to generate per base payload.",
     )
 
     # ------------------------------------------------------------------
