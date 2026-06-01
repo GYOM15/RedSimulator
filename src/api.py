@@ -56,6 +56,10 @@ class _PipelineState:
     def __init__(self) -> None:
         self.last_report: str = ""
         self.is_fixtures: bool = False
+        # Keep pipeline results for knowledge-graph construction in the RAG chatbot
+        self.last_scan = None       # ScanResult | None
+        self.last_plan = None       # AttackPlan | None
+        self.last_results = None    # AttackResult | None
 
 
 _state = _PipelineState()
@@ -396,6 +400,9 @@ async def _run_pipeline(target: str, use_fixtures: bool):
 
         report = generate_report(scan_result, attack_plan, attack_result)
         _state.last_report = report
+        _state.last_scan = scan_result
+        _state.last_plan = attack_plan
+        _state.last_results = attack_result
 
         # Rapport par petits chunks pour effet typewriter
         chunk_size = 40
@@ -459,9 +466,14 @@ def chat(req: ChatRequest):
         }
 
     try:
-        from src.reporter.rag_chatbot import ask_report, index_report
+        from src.reporter.rag import ask_report, index_report
 
-        index_report(_state.last_report)
+        index_report(
+            _state.last_report,
+            scan=_state.last_scan,
+            plan=_state.last_plan,
+            results=_state.last_results,
+        )
         answer = ask_report(req.question)
         return {"answer": answer, "mode": "live"}
     except RedSimulatorError as exc:
