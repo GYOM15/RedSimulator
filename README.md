@@ -12,8 +12,6 @@
   <img src="https://img.shields.io/badge/License-MIT-blue" alt="License" />
 </p>
 
-> **Work in progress** — under active development.
-
 AI-powered automated security testing tool that chains 5 AI modules to scan, analyze and exploit vulnerabilities in a target web application (OWASP Juice Shop).
 
 ---
@@ -23,15 +21,21 @@ AI-powered automated security testing tool that chains 5 AI modules to scan, ana
 ```
    ┌──────────┐    ┌──────────┐    ┌───────────┐    ┌──────────┐    ┌──────────┐
    │ Scanner  │───>│  Expert  │───>│ Generator │───>│ Executor │───>│ Reporter │
-   │  (ReAct) │    │ (Rules)  │    │(LLM+Offline)│   │(Attacks) │    │(RAG+LLM) │
+   │  (ReAct) │    │(20 Rules)│    │(LLM+Offline)│  │(9 Handlers)│  │(RAG+LLM) │
    └──────────┘    └──────────┘    └───────────┘    └──────────┘    └──────────┘
+                                        │
+                                   ┌────┴────┐
+                                   │  Infra  │
+                                   │(AOP/Logs)│
+                                   └─────────┘
 ```
 
 1. **Scanner** — Autonomous ReAct agent (LangGraph + Claude) for reconnaissance
-2. **Expert** — Forward-chaining expert system (OWASP rules)
-3. **Generator** — LLM-based payload generation with offline mutation fallback
-4. **Executor** — Runs attacks against the target
+2. **Expert** — Forward-chaining expert system with 20 OWASP rules + LLM analyst second pass
+3. **Generator** — LLM-based payload mutation with deterministic offline fallback
+4. **Executor** — 9 attack handlers with plugin architecture and session management
 5. **Reporter** — Generates a report + RAG chatbot
+6. **Infra** — AOP decorators, Pydantic Settings, structured logging, typed exceptions
 
 The React web interface communicates with the FastAPI backend via **Server-Sent Events** (SSE) to display pipeline progress in real time.
 
@@ -44,24 +48,23 @@ The React web interface communicates with the FastAPI backend via **Server-Sent 
 | Pydantic Models | ✅ Complete | Data contracts between all modules |
 | JSON Fixtures | ✅ Complete | Simulated Juice Shop data for dev/demo |
 | Scanner | ✅ Complete | 8 tools, ReAct agent with self-evaluation, dynamic crawling (Playwright), persistent memory |
+| Expert System | ✅ Complete | 20 rules in 3 categories + LLM analyst second pass (17/20 fire on Juice Shop fixture) |
+| Generator (LLM + Offline) | ✅ Complete | Claude API mutation + deterministic offline fallback (SQLi, XSS, IDOR, path traversal) |
+| Executor | ✅ Complete | 9 attack handlers with plugin architecture, session management, LLM response analysis |
+| Reporter | ✅ Complete | Template + LLM-generated reports, RAG chatbot with in-memory fallback |
 | Orchestrator | ✅ Complete | Full pipeline with fixtures mode |
 | FastAPI API | ✅ Complete | SSE streaming, RAG chat endpoint |
-| React Frontend | ✅ Complete | 5-phase UI, charts, RAG chat, dark theme |
-| Docker | ✅ Complete | Juice Shop + ChromaDB + recon-tools (nmap, ffuf, subfinder) |
-| Expert System | 🔧 Scaffold | 3 rules implemented (SQLi, XSS, SQLi→CRITICAL chaining), 5+ to add |
-| Generator (LLM + Offline) | 🔧 Scaffold | LLM-based generation with deterministic offline fallback |
-| Executor | 🔧 Scaffold | SQLi implemented, 3 attack types to add |
-| Reporter | 🔧 Scaffold | Template report + basic RAG with in-memory fallback |
-| Tests | 🔧 Partial | Models + expert + generator covered |
+| React Frontend | ✅ Complete | 15-file decomposed UI, charts, RAG chat, dark theme |
+| Infra | ✅ Complete | AOP decorators, Pydantic Settings, structured logging, typed exceptions |
+| Docker | ✅ Complete | Juice Shop + ChromaDB + recon-tools, healthchecks on all services |
+| CI | ✅ Complete | GitHub Actions with ruff lint, mypy typecheck, pytest |
+| Tests | ✅ Complete | Models, expert, generator, executor covered |
 
-### Still to implement
+### Remaining improvements
 
-- **Expert**: IDOR, PATH_TRAVERSAL, AUTH_BYPASS, INFO_DISCLOSURE rules, advanced chaining (CHAIN_BYPASS_EXFIL)
-- **Generator**: XSS/command injection datasets, LLM prompt tuning, quality metrics
-- **Executor**: XSS, IDOR, path traversal attacks, session/auth handling
-- **Reporter**: Claude API generation, PDF export, CVSS scores
-- **RAG**: Production ChromaDB, semantic embeddings, conversation history
-- **Tests**: Scanner unit coverage, end-to-end tests
+- **RAG**: Production ChromaDB with semantic embeddings, conversation history
+- **Reporter**: PDF export, CVSS score integration
+- **Tests**: End-to-end pipeline tests, scanner unit coverage expansion
 
 ---
 
@@ -177,6 +180,8 @@ pytest tests/ -v
 | `fastapi` + `sse-starlette` | Backend API with streaming |
 | `react` + `vite` | Real-time web interface |
 | `requests` + `beautifulsoup4` | HTTP + HTML parsing |
+| `pydantic-settings` | Type-safe configuration from environment |
+| `ruff` + `mypy` | Linting and type checking (CI) |
 
 ---
 

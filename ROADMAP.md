@@ -36,9 +36,6 @@ python3 -m src.scanner --fixtures  # Scanner avec fixture
 
 # Tests
 pytest tests/ -v
-
-# Dashboard
-streamlit run src/dashboard.py
 ```
 
 ### Lancement — mode live (avec Juice Shop)
@@ -69,14 +66,16 @@ python3 -m src.orchestrator --target http://localhost:3000
 | Fichier | Responsabilite | Etat |
 |---------|---------------|------|
 | `agent.py` | Agent ReAct avec auto-evaluation et boucle de relance | Done |
-| `tools.py` | 7 outils : port_scan, endpoint_discovery, header_checker, form_analyzer, probe_endpoint, tech_detector, directory_bruteforce | Done |
+| `tools.py` | 8 outils : port_scan, endpoint_discovery, header_checker, form_analyzer, probe_endpoint, tech_detector, directory_bruteforce, dns_enum | Done |
 | `http_utils.py` | Requetes HTTP securisees + formatage erreurs | Done |
 | `crawlers.py` | Decouverte de chemins (HTML + JS bundles + Playwright) | Done |
 | `form_parsing.py` | Analyse de formulaires (statique + dynamique Playwright) | Done |
 | `tech_detector.py` | Detection des technologies et versions (headers, HTML, JS, package.json, endpoints) | Done |
+| `browser.py` | Singleton Playwright (Chromium headless) | Done |
+| `memory.py` | Historique de scans persistant par cible | Done |
 
 **Capacites du scanner :**
-- 7 outils autonomes pour l'agent + wordlists par categorie
+- 8 outils autonomes pour l'agent + wordlists par categorie
 - Auto-evaluation du rapport avec boucle de relance (max 2 iterations)
 - Resumes factuels sans heuristiques hardcodees
 - Analyse du contenu des reponses (detection de secrets, tokens, code source)
@@ -92,15 +91,17 @@ python3 -m src.orchestrator --target http://localhost:3000
 |--------|----------|------|
 | Modeles Pydantic | `src/models/*.py` | Done — contrat entre modules |
 | Fixtures JSON | `data/fixtures/*.json` | Done — donnees simulees |
-| Systeme Expert | `src/expert/engine.py`, `rules.py`, `facts.py` | Done (scaffold) |
-| Generator (LLM + Offline) | `src/generator/offline_mutator.py`, `llm_mutator.py`, `generate.py` | Done (scaffold) |
-| Executor | `src/executor/runner.py` | Done (scaffold) |
-| Reporter | `src/reporter/report_generator.py` | Done (scaffold) |
-| RAG Chatbot | `src/reporter/rag_chatbot.py` | Done (scaffold) |
+| Systeme Expert | `src/expert/engine.py`, `rules.py`, `rules_header.py`, `rules_chaining.py`, `facts.py`, `llm_analyst.py` | Done — 20 regles, 3 categories + analyste LLM |
+| Generator (LLM + Offline) | `src/generator/llm_mutator.py`, `offline_mutator.py`, `generate.py` | Done — mutation LLM + fallback offline |
+| Executor | `src/executor/base.py`, `session.py`, `attacks/*.py`, `attacks/response_analyzer.py` | Done — 9 handlers, architecture plugin |
+| Reporter | `src/reporter/report_generator.py` | Done |
+| RAG Chatbot | `src/reporter/rag_chatbot.py` | Done |
 | Orchestrateur | `src/orchestrator.py` | Done |
-| Dashboard | `src/dashboard.py` | Done (scaffold) |
+| Infra | `src/infra/` — AOP decorators, Pydantic Settings, structured logging, exceptions | Done |
 | Regles OWASP | `rules/owasp_rules.json` | Done |
 | Config | `pyproject.toml`, `docker-compose.yml`, `.env.example` | Done |
+| CI | GitHub Actions — ruff, mypy, pytest | Done |
+| Docker | Dockerfile + docker-compose avec healthchecks | Done |
 | Tests | `tests/test_*.py` | Done |
 
 ---
@@ -126,57 +127,64 @@ python3 -m src.orchestrator --target http://localhost:3000
 - [x] probe_endpoint pour investigation approfondie
 - [x] Interface React temps reel avec SSE
 - [x] API FastAPI avec streaming
-- [ ] Tests unitaires
+- [x] Tests unitaires
 
-### 2. Systeme Expert (`src/expert/`)
+### 2. Systeme Expert (`src/expert/`) — COMPLET
 
-- [ ] Enrichir `owasp_rules.json` avec plus de regles (CSRF, SSRF, XXE, etc.)
-- [ ] Affiner les seuils de criticite (score, priorite)
-- [ ] Ajouter la correlation entre vulnerabilites (chaines d'attaques)
-- [ ] Valider les regles avec les resultats du vrai scan
+- [x] Enrichir avec plus de regles (20 regles au total)
+- [x] Regles de vulnerabilites (rules.py — 11 regles) : SQLi, XSS, IDOR, PATH_TRAVERSAL, AUTH_BYPASS, INFO_DISCLOSURE, CSRF, OPEN_REDIRECT, COMMAND_INJECTION, BROKEN_AUTH
+- [x] Regles de headers/config (rules_header.py — 4 regles) : MISSING_HSTS, MISSING_XFRAME, INSECURE_COOKIES, SENSITIVE_DATA_EXPOSURE
+- [x] Regles de chainage (rules_chaining.py — 5 regles) : CHAIN_BYPASS_EXFIL, CHAIN_XSS_SESSION, CHAIN_IDOR_INFO, XSS_CRITICAL, MULTI_VULN_CRITICAL
+- [x] Analyste LLM en deuxieme passe (llm_analyst.py)
+- [x] Correlation entre vulnerabilites (chaines d'attaques)
+- [x] 17/20 regles s'activent sur la fixture Juice Shop → 14 vecteurs d'attaque
 
-### 3. Generator / LLM + Offline (`src/generator/`)
+### 3. Generator / LLM + Offline (`src/generator/`) — COMPLET
 
-- [ ] Enrichir `data/payloads/sqli_payloads.txt` avec plus de payloads
-- [ ] Ajouter des datasets pour XSS, command injection, path traversal
-- [ ] Affiner les prompts LLM pour la generation de variantes
-- [ ] Ajouter des metriques de qualite des payloads generes
-- [ ] Ameliorer le fallback offline avec plus de strategies de mutation
+- [x] Mutation LLM via Claude API (llm_mutator.py)
+- [x] Fallback offline deterministe (offline_mutator.py) pour SQLi, XSS, IDOR, path traversal
+- [x] Orchestrateur (generate.py) : essaie LLM, tombe en fallback offline
+- [x] Strategies de mutation : encodage, whitespace, commentaires, variations de casse
 
-### 4. Executor (`src/executor/`)
+### 4. Executor (`src/executor/`) — COMPLET
 
-- [ ] Ajouter plus de types d'attaques (command injection, path traversal)
-- [ ] Gerer les cookies de session et l'authentification
-- [ ] Ajouter des checks de succes plus fins (regex, codes HTTP)
-- [ ] Ajouter un mode rate-limiting pour ne pas surcharger la cible
+- [x] Architecture plugin avec AttackHandler abstrait (base.py)
+- [x] SessionManager pour cookies et authentification (session.py)
+- [x] 9 handlers d'attaque :
+  - [x] SQL injection (error-based, auth bypass, UNION)
+  - [x] XSS (reflected, stored, sanitization partielle)
+  - [x] IDOR (enumeration d'IDs, comparaison de reponses)
+  - [x] Path traversal (encodage, variantes OS)
+  - [x] Auth bypass (acces direct, method tampering, headers, credentials par defaut)
+  - [x] Info disclosure (headers, erreurs, donnees sensibles, listing de repertoires)
+  - [x] Command injection (separateur, blind time-based, output-based)
+  - [x] CSRF (absence de token, validation, SameSite, referer)
+  - [x] Open redirect (Location header, redirection JS)
+- [x] Analyse de reponses par LLM (response_analyzer.py)
+- [x] Rate limiting entre les requetes
 
 ### 5. Reporter (`src/reporter/`)
 
-- [ ] Activer la generation via Claude API (remplacer le template statique)
-- [ ] Ameliorer le format du rapport (graphiques, scores CVSS)
+- [x] Generation via Claude API
+- [ ] Ameliorer le format du rapport (scores CVSS)
 - [ ] Ajouter l'export PDF
 
 ### 6. RAG Chatbot (`src/reporter/rag_chatbot.py`)
 
-- [ ] Brancher ChromaDB (Docker) au lieu du fallback en memoire
-- [ ] Utiliser les embeddings d'Anthropic pour le chunking semantique
-- [ ] Activer les reponses via Claude API
-- [ ] Integrer le chat dans le dashboard Streamlit
+- [x] Fallback en memoire fonctionnel
+- [ ] Brancher ChromaDB (Docker) en production
+- [ ] Utiliser les embeddings semantiques
 - [ ] Ajouter l'historique de conversation
 
-### 7. Dashboard (`src/dashboard.py`)
+### 7. Infra & DevOps — COMPLET
 
-- [ ] Ajouter le chat RAG interactif dans l'interface
-- [ ] Ameliorer les visualisations (graphiques Plotly, heatmap OWASP)
-- [ ] Ajouter le lancement du pipeline depuis le dashboard
-- [ ] Mode comparaison entre plusieurs scans
-
-### 8. Infra & DevOps
-
-- [ ] Init Git + commit initial + branche `dev`
-- [ ] Ajouter CI (GitHub Actions) : lint + tests
-- [ ] Dockerfile pour le projet complet
-- [ ] Documentation API (docstrings completes)
+- [x] Git + branches
+- [x] CI GitHub Actions : ruff lint + mypy typecheck + pytest
+- [x] Dockerfile avec healthchecks
+- [x] AOP decorators (@logged, @retry, @timed, @safe)
+- [x] Pydantic Settings pour la configuration
+- [x] Structured logging (text + JSON), zero print()
+- [x] Hierarchie d'exceptions typees
 
 ---
 
@@ -211,7 +219,7 @@ python3 -m src.orchestrator --target http://localhost:3000
 
 | Package | Usage |
 |---------|-------|
-| `pydantic` | Modeles de donnees et validation |
+| `pydantic` + `pydantic-settings` | Modeles de donnees, validation, configuration |
 | `langchain` + `langgraph` | Agent ReAct |
 | `langchain-anthropic` | LLM Claude (agent, generation de payloads, rapport) |
 | `requests` | Requetes HTTP |
@@ -219,5 +227,7 @@ python3 -m src.orchestrator --target http://localhost:3000
 | `playwright` | Analyse dynamique des SPA (Chromium headless) |
 | `python-nmap` | Scan de ports (optionnel) |
 | `chromadb` | Base vectorielle pour le RAG |
-| `streamlit` + `plotly` | Dashboard |
+| `fastapi` + `sse-starlette` | Backend API avec streaming |
+| `react` + `vite` | Interface web temps reel |
+| `ruff` + `mypy` | Linting et verification de types (CI) |
 | `python-dotenv` | Variables d'environnement |

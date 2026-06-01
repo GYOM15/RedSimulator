@@ -40,12 +40,22 @@ Key design decisions:
 
 The expert system implements a classic **forward-chaining inference engine**. It converts the scan results into a set of facts, then iteratively applies rules until no more can fire.
 
-The engine currently implements three rules that demonstrate the chaining mechanism:
-1. **SQL_INJECTION**: if a form exists and the target uses a SQL database → flag as HIGH
-2. **XSS_REFLECTED**: if a POST endpoint exists and Content-Security-Policy is missing → flag as MEDIUM
-3. **SQL_INJECTION_CRITICAL**: if a SQLi vector exists AND the endpoint requires no authentication → elevate to CRITICAL
+The engine implements **20 rules** organized across three categories:
 
-Rule 3 is the interesting one — it depends on Rule 1 having already fired. This demonstrates how forward chaining can model escalation scenarios: a vulnerability that might be HIGH in isolation becomes CRITICAL when combined with weak access controls.
+**Core vulnerability rules** (`rules.py` — 11 rules):
+- SQL_INJECTION, XSS_REFLECTED, SQL_INJECTION_CRITICAL, IDOR, PATH_TRAVERSAL, AUTH_BYPASS, INFO_DISCLOSURE, CSRF, OPEN_REDIRECT, COMMAND_INJECTION, BROKEN_AUTH
+
+**Header/configuration rules** (`rules_header.py` — 4 rules):
+- MISSING_HSTS, MISSING_XFRAME, INSECURE_COOKIES, SENSITIVE_DATA_EXPOSURE
+
+**Attack chaining rules** (`rules_chaining.py` — 5 rules):
+- CHAIN_BYPASS_EXFIL, CHAIN_XSS_SESSION, CHAIN_IDOR_INFO, XSS_CRITICAL, MULTI_VULN_CRITICAL
+
+The chaining rules demonstrate the real power of forward chaining. For example, CHAIN_BYPASS_EXFIL fires only when both an AUTH_BYPASS and a SQL_INJECTION vector have already been identified — modeling a realistic two-step attack where an attacker bypasses authentication and then exfiltrates data through injection. MULTI_VULN_CRITICAL elevates the overall risk when multiple vulnerability types are detected on the same target.
+
+An **LLM analyst second pass** (`llm_analyst.py`) reviews the expert system's output using Claude, adding context-aware analysis that pure rules cannot capture — such as identifying subtle attack chains or adjusting severity based on the target's technology stack.
+
+On the Juice Shop fixture data, 17 of the 20 rules fire, producing 14 prioritized attack vectors.
 
 The output is a structured `AttackPlan` containing prioritized attack vectors with target endpoints, fields, and base payloads.
 
@@ -61,9 +71,23 @@ When an LLM API key is available, the generator produces creative, context-aware
 
 The offline mutator covers SQLi, XSS, IDOR, and path traversal attack types, each with type-specific mutation rules derived from real-world bypass techniques.
 
-### 4. Attack Executor
+### 4. Attack Executor — Plugin-based attack engine
 
-The executor takes the attack plan and generated payloads, then sends them against the target application. Currently, only SQL injection testing is implemented — it sends payloads to login endpoints and analyzes responses for indicators of success (SQL error messages, unexpected authentication, data leakage).
+The executor takes the attack plan and generated payloads, then runs them against the target application through a **plugin architecture** with 9 specialized attack handlers:
+
+| Handler | Techniques |
+|---------|-----------|
+| **SQL injection** | Error-based detection, auth bypass, UNION extraction |
+| **XSS** | Reflected, stored, partial sanitization bypass |
+| **IDOR** | ID enumeration, response comparison |
+| **Path traversal** | Encoding tricks, OS-specific variants |
+| **Auth bypass** | Direct access, method tampering, header manipulation, default credentials |
+| **Info disclosure** | Header probing, error triggering, sensitive data detection, directory listing |
+| **Command injection** | Separator-based, blind time-based, output-based |
+| **CSRF** | Token absence/validation, SameSite policy, referer checking |
+| **Open redirect** | Location header analysis, JavaScript redirect detection |
+
+Each handler inherits from an abstract `AttackHandler` base class, making it straightforward to add new attack types. A `SessionManager` handles cookies and authentication state across requests, and an LLM-based `ResponseAnalyzer` provides intelligent analysis of attack responses when pattern matching is ambiguous.
 
 Rate limiting (200ms between requests) prevents overwhelming the target. Each result records the payload used, HTTP response status, a response snippet, and whether the attack succeeded.
 
@@ -73,21 +97,38 @@ The reporter generates a structured Markdown security report from the pipeline r
 
 The RAG (Retrieval-Augmented Generation) chatbot indexes the report into ChromaDB chunks and allows natural language queries about the findings. This turns a static report into an interactive knowledge base — useful for non-technical stakeholders who want to understand specific vulnerabilities without reading the full document.
 
+## Infrastructure — AOP and observability
+
+Production-quality tooling needs more than just features — it needs observability and resilience. The `src/infra/` module provides cross-cutting concerns through **Aspect-Oriented Programming** decorators:
+
+- `@logged`: automatic entry/exit logging with arguments and return values
+- `@retry`: configurable retry with exponential backoff for transient failures
+- `@timed`: execution time measurement for performance profiling
+- `@safe`: exception catching with structured error reporting
+
+Configuration is managed through **Pydantic Settings**, providing type-safe, environment-variable-backed configuration with validation. All logging is structured (both text and JSON formats), and the codebase has zero `print()` calls — everything flows through the structured logging system.
+
+A typed exception hierarchy ensures consistent error handling across all modules, and CI (GitHub Actions) enforces code quality with ruff linting, mypy type checking, and pytest on every push.
+
 ## Frontend
 
 The web interface is built with React and connects to the FastAPI backend via Server-Sent Events. It displays the pipeline execution in real time across 5 phases, with live logs, discovered endpoints, attack vectors, and results streaming in as they happen.
 
+The frontend was decomposed from a monolithic 702-line `App.jsx` into **15 files**: 11 component files in `components/`, a custom `usePipeline.js` hook, and theme constants in `styles/theme.js`. This separation makes each component independently testable and keeps the codebase maintainable.
+
 The UI includes severity distribution charts, attack success rates, and an integrated RAG chat for post-scan analysis — all in a dark theme optimized for security tooling.
 
-## Current status and next steps
+## Current status
 
-The scanner, orchestrator, API, and frontend are fully implemented. The expert system, payload generator, executor, and reporter are functional scaffolds — they work end-to-end but need deeper implementation.
+All five pipeline modules are fully implemented and functional end-to-end:
 
-Immediate priorities:
-- Expanding the expert system with more OWASP rules and chaining scenarios
-- Adding XSS, IDOR, and path traversal to the executor
-- Improving payload generation quality with LLM prompt tuning and expanded offline mutation rules
-- Connecting ChromaDB in production mode for the RAG chatbot
+- **Scanner**: 8-tool ReAct agent with self-evaluation and persistent memory
+- **Expert System**: 20 rules across 3 categories with LLM analyst second pass
+- **Generator**: LLM-based mutation with deterministic offline fallback
+- **Executor**: 9 attack handlers with plugin architecture, session management, and LLM response analysis
+- **Reporter**: Template-based and LLM-generated reports with RAG chatbot
+
+The infrastructure layer (AOP decorators, structured logging, Pydantic Settings, CI pipeline, Docker with healthchecks) provides production-grade observability and resilience across all modules.
 
 ## Lessons learned
 
@@ -95,4 +136,10 @@ Immediate priorities:
 
 **Agent autonomy is a spectrum.** The ReAct agent works best when tools return raw facts and the agent decides what matters. Early versions had tools that made judgment calls (e.g., "this endpoint looks vulnerable") — removing those heuristics and letting the agent reason over raw data produced better results.
 
-**Graceful degradation matters.** In a tool that depends on Docker, nmap, Playwright, and an LLM API, any component can be missing. Designing every layer with fallbacks (Docker nmap → local nmap → sockets, Claude API → template report) means the tool remains useful in any environment.
+**Graceful degradation matters.** In a tool that depends on Docker, nmap, Playwright, and an LLM API, any component can be missing. Designing every layer with fallbacks (Docker nmap → local nmap → sockets, Claude API → template report, LLM mutator → offline mutator) means the tool remains useful in any environment.
+
+**Plugin architectures pay off early.** The executor's abstract `AttackHandler` base class made adding new attack types mechanical — each handler is self-contained, testable, and follows the same interface. Going from 1 handler (SQLi) to 9 took a fraction of the time it took to build the first one.
+
+**Structured logging over print().** Replacing all `print()` calls with structured logging (text + JSON) and AOP decorators (`@logged`, `@timed`) transformed debugging from guesswork into data. When a 20-rule expert system fires, being able to trace exactly which rules fired and why — with timing data — is essential.
+
+**LLM as a second pair of eyes.** Using an LLM analyst as a second pass over the expert system's output catches patterns that pure rules miss. Rules are fast and deterministic; the LLM adds contextual reasoning. The combination is stronger than either approach alone.
