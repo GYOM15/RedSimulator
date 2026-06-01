@@ -28,6 +28,9 @@ class AttackType(StrEnum):
     path_traversal = "path_traversal"
     auth_bypass = "auth_bypass"
     info_disclosure = "info_disclosure"
+    command_injection = "command_injection"
+    csrf = "csrf"
+    open_redirect = "open_redirect"
 
 
 class AttackVector(BaseModel):

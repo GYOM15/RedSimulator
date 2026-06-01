@@ -1,22 +1,18 @@
-"""Executeur d'attaques contre la cible.
+"""Plugin-based attack executor.
 
-Envoie les payloads aux endpoints cibles et analyse les reponses
-pour determiner si l'attaque a reussi.
-
-Seule l'attaque SQLi est implementee. Les autres types sont en TODO.
-
-TODO: Implementer _test_xss, _test_idor, _test_path_traversal.
+Auto-discovers attack handlers from :mod:`src.executor.attacks` and
+dispatches each vector to the matching handler.  The public interface
+(``AttackExecutor`` with ``execute_all``) is unchanged.
 """
+
+from __future__ import annotations
 
 import json
 import time
 from pathlib import Path
 
-import requests
-
 from src.infra.config import settings
-from src.infra.decorators import logged, retry, timed
-from src.infra.exceptions import AttackError
+from src.infra.decorators import logged, timed
 from src.infra.logging import get_logger
 from src.models import (
     AttackPlan,
@@ -26,11 +22,19 @@ from src.models import (
     SingleAttackResult,
 )
 
+from .attacks import get_all_handlers
+from .base import AttackHandler
+from .session import SessionManager
+
 logger = get_logger(__name__)
 
 
 class AttackExecutor:
     """Execute les attaques du plan contre la cible.
+
+    Uses a plugin architecture: each attack type is handled by a
+    dedicated :class:`~src.executor.base.AttackHandler` subclass
+    discovered at runtime from the ``src.executor.attacks`` package.
 
     Rate-limited selon ``settings.attack_delay`` entre chaque requete
     pour ne pas surcharger la cible.
@@ -39,106 +43,86 @@ class AttackExecutor:
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
         self.delay = settings.attack_delay
+        self.session_manager = SessionManager(self.base_url)
 
-    @retry(max_attempts=2, base_delay=0.5, exceptions=(requests.ConnectionError, requests.Timeout))
-    def _test_sqli(self, vector: AttackVector, payload: str) -> SingleAttackResult:
-        """Teste une injection SQL sur l'endpoint cible.
+        # Discover and instantiate all available handlers.
+        handler_classes = get_all_handlers()
+        self._handlers: dict[str, AttackHandler] = {}
+        for attack_type, handler_cls in handler_classes.items():
+            self._handlers[attack_type] = handler_cls(
+                base_url=self.base_url,
+                session=self.session_manager,
+            )
+            logger.info(
+                "Handler charge: %s -> %s",
+                attack_type,
+                handler_cls.__name__,
+            )
 
-        Envoie le payload comme valeur des champs du formulaire
-        et analyse la reponse pour detecter un succes.
+        if self._handlers:
+            logger.info(
+                "%d handler(s) disponible(s): %s",
+                len(self._handlers),
+                ", ".join(sorted(self._handlers)),
+            )
+        else:
+            logger.warning("Aucun handler d'attaque disponible.")
 
-        Args:
-            vector: Vecteur d'attaque avec l'endpoint et les champs cibles.
-            payload: Payload SQLi a tester.
+    def _execute_vector(
+        self,
+        vector: AttackVector,
+        payloads: list[str],
+    ) -> tuple[list[SingleAttackResult], int, int]:
+        """Execute all payloads for a single vector.
 
         Returns:
-            Resultat de l'attaque.
+            Tuple of (results list, total attempts, success count).
         """
-        url = f"{self.base_url}{vector.target_endpoint}"
-        logger.debug("[SQLI] %s <- %s", url, payload)
-
-        # Construire le body avec le payload dans chaque champ
-        body = {}
-        for field in vector.target_fields:
-            body[field] = payload
-
-        try:
-            resp = requests.post(url, json=body, timeout=10)
-            snippet = resp.text[:200]
-
-            # Detection de succes
-            success = False
-            detection = "Aucune injection detectee"
-
-            if resp.status_code == 200 and "authentication" in resp.text.lower():
-                success = True
-                detection = "Token d'authentification retourne sans identifiants valides"
-            elif "sqlite" in resp.text.lower() or "sql" in resp.text.lower():
-                detection = "Erreur SQL exposee dans la reponse"
-                if "error" not in resp.text.lower():
-                    success = True
-
-            result = SingleAttackResult(
-                vector_id=vector.id,
-                payload_used=payload,
-                target_endpoint=vector.target_endpoint,
-                http_status=resp.status_code,
-                response_snippet=snippet,
-                success=success,
-                detection_method=detection,
+        handler = self._handlers.get(vector.attack_type.value)
+        if handler is None:
+            logger.warning(
+                "Aucun handler pour le type d'attaque '%s' (vecteur %s). Ignore.",
+                vector.attack_type.value,
+                vector.id,
             )
+            return [], 0, 0
 
-            status = "SUCCES" if success else "ECHEC"
-            logger.debug("-> %s | %s | %s", resp.status_code, status, detection)
-            return result
+        logger.info(
+            "Vecteur %s (%s) -> handler %s",
+            vector.id,
+            vector.attack_type.value,
+            type(handler).__name__,
+        )
 
-        except requests.RequestException as e:
-            logger.error("Erreur requete SQLI: %s", e)
-            return SingleAttackResult(
-                vector_id=vector.id,
-                payload_used=payload,
-                target_endpoint=vector.target_endpoint,
-                http_status=0,
-                response_snippet=str(e),
-                success=False,
-                detection_method=f"Erreur de connexion: {e}",
-            )
+        results: list[SingleAttackResult] = []
+        total = 0
+        success_count = 0
 
-    def _test_xss(self, vector: AttackVector, payload: str) -> SingleAttackResult:
-        """Teste une attaque XSS sur l'endpoint cible.
+        for payload in payloads:
+            total += 1
+            time.sleep(self.delay)
 
-        TODO: Implementer le test XSS.
-            - Envoyer le payload dans les champs cibles via POST
-            - Verifier si le payload est reflete tel quel dans la reponse
-            - Verifier si le payload est stocke (GET apres POST)
-            - Detecter les sanitizations partielles
-        """
-        raise AttackError("_test_xss n'est pas encore implemente", vector_id=vector.id)
+            try:
+                result = handler.test(vector, payload)
+                results.append(result)
+                if result.success:
+                    success_count += 1
+            except Exception:
+                logger.exception(
+                    "Erreur lors du test du vecteur %s avec payload %s",
+                    vector.id,
+                    payload[:80],
+                )
 
-    def _test_idor(self, vector: AttackVector, payload: str) -> SingleAttackResult:
-        """Teste une attaque IDOR sur l'endpoint cible.
-
-        TODO: Implementer le test IDOR.
-            - Remplacer l'ID dans l'URL par les valeurs du payload
-            - Envoyer des requetes GET avec differents IDs
-            - Comparer les reponses pour detecter l'acces non autorise
-            - Verifier si les donnees retournees appartiennent a un autre utilisateur
-        """
-        raise AttackError("_test_idor n'est pas encore implemente", vector_id=vector.id)
-
-    def _test_path_traversal(self, vector: AttackVector, payload: str) -> SingleAttackResult:
-        """Teste une attaque path traversal sur l'endpoint cible.
-
-        TODO: Implementer le test path traversal.
-            - Envoyer le payload (../../etc/passwd) dans les parametres
-            - Verifier si la reponse contient du contenu de fichier systeme
-            - Tester differentes encodages (URL encoding, double encoding)
-        """
-        raise AttackError("_test_path_traversal n'est pas encore implemente", vector_id=vector.id)
+        return results, total, success_count
 
     @logged
     @timed
-    def execute_all(self, attack_plan: AttackPlan, payload_result: PayloadResult) -> AttackResult:
+    def execute_all(
+        self,
+        attack_plan: AttackPlan,
+        payload_result: PayloadResult,
+    ) -> AttackResult:
         """Execute toutes les attaques du plan.
 
         Args:
@@ -150,7 +134,7 @@ class AttackExecutor:
         """
         logger.info("Execution des attaques sur %s", self.base_url)
 
-        results: list[SingleAttackResult] = []
+        all_results: list[SingleAttackResult] = []
         total = 0
         success_count = 0
 
@@ -163,41 +147,19 @@ class AttackExecutor:
             payload_map[gp.vector_id].extend(gp.variants)
 
         for vector in attack_plan.vectors:
-            logger.info("Vecteur %s (%s)", vector.id, vector.attack_type.value)
-
             payloads = payload_map.get(vector.id, vector.base_payloads)
             if not payloads:
                 payloads = vector.base_payloads
 
-            for payload in payloads:
-                total += 1
-                time.sleep(self.delay)
-
-                try:
-                    if vector.attack_type.value == "sqli":
-                        result = self._test_sqli(vector, payload)
-                    elif vector.attack_type.value == "xss":
-                        result = self._test_xss(vector, payload)
-                    elif vector.attack_type.value == "idor":
-                        result = self._test_idor(vector, payload)
-                    elif vector.attack_type.value == "path_traversal":
-                        result = self._test_path_traversal(vector, payload)
-                    else:
-                        logger.warning("Type d'attaque non supporte: %s", vector.attack_type.value)
-                        continue
-
-                    results.append(result)
-                    if result.success:
-                        success_count += 1
-
-                except AttackError as e:
-                    logger.warning("Attaque non implementee: %s", e)
-                    break  # Passer au vecteur suivant
+            results, vec_total, vec_success = self._execute_vector(vector, payloads)
+            all_results.extend(results)
+            total += vec_total
+            success_count += vec_success
 
         logger.info("Termine: %d tentatives, %d succes", total, success_count)
 
         return AttackResult(
-            results=results,
+            results=all_results,
             total_attempts=total,
             successful_attacks=success_count,
         )
