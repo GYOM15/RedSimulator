@@ -17,10 +17,10 @@ Design goals:
 
 from __future__ import annotations
 
-
 # ---------------------------------------------------------------------------
 # Base
 # ---------------------------------------------------------------------------
+
 
 class RedSimulatorError(Exception):
     """Base exception for every error raised inside RedSimulator.
@@ -54,6 +54,7 @@ class RedSimulatorError(Exception):
 # Configuration
 # ---------------------------------------------------------------------------
 
+
 class ConfigError(RedSimulatorError):
     """Invalid or missing configuration value."""
 
@@ -63,6 +64,7 @@ class ConfigError(RedSimulatorError):
 # ---------------------------------------------------------------------------
 # Pipeline (orchestrator level)
 # ---------------------------------------------------------------------------
+
 
 class PipelineError(RedSimulatorError):
     """Orchestrator-level pipeline failure."""
@@ -104,6 +106,7 @@ class PipelineTimeoutError(PipelineError):
 # ---------------------------------------------------------------------------
 # Scanner module
 # ---------------------------------------------------------------------------
+
 
 class ScanError(RedSimulatorError):
     """Scanner module failure."""
@@ -151,6 +154,7 @@ class AgentError(ScanError):
 # Expert system
 # ---------------------------------------------------------------------------
 
+
 class ExpertError(RedSimulatorError):
     """Expert system failure."""
 
@@ -185,6 +189,7 @@ class RuleError(ExpertError):
 # Generator (VAE / payload generation)
 # ---------------------------------------------------------------------------
 
+
 class GeneratorError(RedSimulatorError):
     """VAE or payload generation failure."""
 
@@ -200,6 +205,7 @@ class TrainingError(GeneratorError):
 # ---------------------------------------------------------------------------
 # Executor (attack execution)
 # ---------------------------------------------------------------------------
+
 
 class ExecutorError(RedSimulatorError):
     """Attack execution failure."""
@@ -235,6 +241,7 @@ class AttackError(ExecutorError):
 # Reporter
 # ---------------------------------------------------------------------------
 
+
 class ReporterError(RedSimulatorError):
     """Report generation failure."""
 
@@ -250,6 +257,7 @@ class RAGError(ReporterError):
 # ---------------------------------------------------------------------------
 # External services
 # ---------------------------------------------------------------------------
+
 
 class ExternalServiceError(RedSimulatorError):
     """An external dependency (Docker, nmap, Playwright, LLM API) failed."""

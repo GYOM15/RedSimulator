@@ -9,9 +9,10 @@ import re
 
 from bs4 import BeautifulSoup
 
-from src.infra.logging import get_logger
 from src.infra.config import settings
-from .http_utils import safe_request, parallel_requests
+from src.infra.logging import get_logger
+
+from .http_utils import parallel_requests, safe_request
 
 logger = get_logger(__name__)
 
@@ -29,7 +30,7 @@ def detect_technologies(target: str) -> list[str]:
     """
     logger.info("Detection des technologies sur %s...", target)
 
-    resp, error = safe_request(target)
+    resp, _error = safe_request(target)
     if resp is None:
         return []
 
@@ -108,14 +109,14 @@ def _detect_from_html(html: str) -> set:
         techs.add("Vue.js")
 
     # jQuery avec version
-    jq_match = re.search(r'jquery[.-](\d+\.\d+\.\d+)', html_lower)
+    jq_match = re.search(r"jquery[.-](\d+\.\d+\.\d+)", html_lower)
     if jq_match:
         techs.add(f"jQuery {jq_match.group(1)}")
     elif "jquery" in html_lower:
         techs.add("jQuery")
 
     # Bootstrap avec version
-    bs_match = re.search(r'bootstrap[.-](\d+\.\d+\.\d+)', html_lower)
+    bs_match = re.search(r"bootstrap[.-](\d+\.\d+\.\d+)", html_lower)
     if bs_match:
         techs.add(f"Bootstrap {bs_match.group(1)}")
     elif "bootstrap" in html_lower:
@@ -148,9 +149,9 @@ def _detect_from_js(html: str, target: str) -> set:
     # Prioritiser les JS importants (main, vendor, polyfills) — max 5
     js_tags = soup.find_all("script", src=True)
     priority_keywords = ("main", "vendor", "polyfill", "runtime", "app")
-    prioritized = sorted(js_tags, key=lambda t: (
-        0 if any(k in t["src"].lower() for k in priority_keywords) else 1
-    ))[:5]
+    prioritized = sorted(
+        js_tags, key=lambda t: 0 if any(k in t["src"].lower() for k in priority_keywords) else 1
+    )[:5]
 
     # Construire les URLs
     js_urls = []
@@ -166,9 +167,13 @@ def _detect_from_js(html: str, target: str) -> set:
     logger.debug("Tech detector: analyse de %d/%d fichiers JS", len(js_urls), len(js_tags))
 
     # Telecharger en parallele (timeout court)
-    results = parallel_requests([(url, "GET") for url in js_urls], timeout=settings.request_timeout, max_workers=settings.max_concurrent_requests)
+    results = parallel_requests(
+        [(url, "GET") for url in js_urls],
+        timeout=settings.request_timeout,
+        max_workers=settings.max_concurrent_requests,
+    )
 
-    for url, method, resp in results:
+    for _url, _method, resp in results:
         if not resp:
             continue
 

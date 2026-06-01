@@ -11,9 +11,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-from src.infra.logging import get_logger
 from src.infra.config import settings
 from src.infra.decorators import retry
+from src.infra.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -55,7 +55,10 @@ def clear_cache():
 
 # ---------- Requetes HTTP ----------
 
-def safe_request(url: str, method: str = "GET", timeout: int | None = None, json_body: dict | None = None):
+
+def safe_request(
+    url: str, method: str = "GET", timeout: int | None = None, json_body: dict | None = None
+):
     """Effectue une requete HTTP avec gestion d'erreurs et cache.
 
     Les requetes GET sont mises en cache automatiquement (TTL 5 min).
@@ -108,7 +111,9 @@ def _do_request(url: str, method: str, timeout: int, json_body: dict | None):
     return resp, None
 
 
-def parallel_requests(urls: list[tuple[str, str]], timeout: int = 3, max_workers: int = 10) -> list[tuple[str, str, object | None]]:
+def parallel_requests(
+    urls: list[tuple[str, str]], timeout: int = 3, max_workers: int = 10
+) -> list[tuple[str, str, object | None]]:
     """Execute des requetes HTTP en parallele.
 
     Utilise le cache automatiquement via safe_request.

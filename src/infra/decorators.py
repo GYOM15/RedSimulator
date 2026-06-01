@@ -29,7 +29,8 @@ import functools
 import logging
 import random
 import time
-from typing import Any, Callable, Tuple, Type, TypeVar, Union
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -101,9 +102,7 @@ def logged(
                 result = func(*args, **kwargs)
             except Exception:
                 elapsed_ms = (time.perf_counter() - start) * 1000
-                logger.exception(
-                    "[ERROR] %s raised after %.2f ms", qualname, elapsed_ms
-                )
+                logger.exception("[ERROR] %s raised after %.2f ms", qualname, elapsed_ms)
                 raise
             elapsed_ms = (time.perf_counter() - start) * 1000
             logger.log(
@@ -123,9 +122,7 @@ def logged(
                 result = await func(*args, **kwargs)
             except Exception:
                 elapsed_ms = (time.perf_counter() - start) * 1000
-                logger.exception(
-                    "[ERROR] %s raised after %.2f ms", qualname, elapsed_ms
-                )
+                logger.exception("[ERROR] %s raised after %.2f ms", qualname, elapsed_ms)
                 raise
             elapsed_ms = (time.perf_counter() - start) * 1000
             logger.log(
@@ -157,7 +154,7 @@ def retry(
     max_attempts: int = 3,
     base_delay: float = 1.0,
     max_delay: float = 30.0,
-    exceptions: Tuple[Type[BaseException], ...] = (Exception,),
+    exceptions: tuple[type[BaseException], ...] = (Exception,),
 ) -> Callable:
     """Configurable retry with exponential backoff and jitter.
 
@@ -189,7 +186,7 @@ def retry(
 
         def _compute_delay(attempt: int) -> float:
             """Exponential backoff with full jitter."""
-            exp_delay = base_delay * (2 ** attempt)
+            exp_delay = base_delay * (2**attempt)
             jitter = random.uniform(0, exp_delay)
             return min(jitter, max_delay)
 
@@ -204,8 +201,7 @@ def retry(
                     if attempt < max_attempts - 1:
                         delay = _compute_delay(attempt)
                         logger.warning(
-                            "[RETRY] %s attempt %d/%d failed (%s: %s). "
-                            "Retrying in %.2f s ...",
+                            "[RETRY] %s attempt %d/%d failed (%s: %s). Retrying in %.2f s ...",
                             qualname,
                             attempt + 1,
                             max_attempts,
@@ -216,8 +212,7 @@ def retry(
                         time.sleep(delay)
                     else:
                         logger.error(
-                            "[RETRY] %s failed after %d attempts. "
-                            "Last error: %s: %s",
+                            "[RETRY] %s failed after %d attempts. Last error: %s: %s",
                             qualname,
                             max_attempts,
                             type(exc).__name__,
@@ -236,8 +231,7 @@ def retry(
                     if attempt < max_attempts - 1:
                         delay = _compute_delay(attempt)
                         logger.warning(
-                            "[RETRY] %s attempt %d/%d failed (%s: %s). "
-                            "Retrying in %.2f s ...",
+                            "[RETRY] %s attempt %d/%d failed (%s: %s). Retrying in %.2f s ...",
                             qualname,
                             attempt + 1,
                             max_attempts,
@@ -248,8 +242,7 @@ def retry(
                         await asyncio.sleep(delay)
                     else:
                         logger.error(
-                            "[RETRY] %s failed after %d attempts. "
-                            "Last error: %s: %s",
+                            "[RETRY] %s failed after %d attempts. Last error: %s: %s",
                             qualname,
                             max_attempts,
                             type(exc).__name__,
@@ -319,7 +312,7 @@ def safe(
     _func: Callable | None = None,
     *,
     fallback: Any = None,
-    exceptions: Tuple[Type[BaseException], ...] = (Exception,),
+    exceptions: tuple[type[BaseException], ...] = (Exception,),
 ) -> Callable:
     """Catch exceptions and return a fallback value instead.
 

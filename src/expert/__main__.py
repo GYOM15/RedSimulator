@@ -9,8 +9,8 @@ from pathlib import Path
 from src.infra.logging import get_logger, setup_logging
 from src.models import ScanResult
 
-from .facts import scan_result_to_facts
 from .engine import ExpertEngine
+from .facts import scan_result_to_facts
 from .rules import get_all_rules
 
 setup_logging()

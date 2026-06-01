@@ -7,9 +7,9 @@ Implemente l'algorithme de chainage avant classique :
 4. Repeter jusqu'a stabilite (aucune nouvelle regle activee)
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from src.infra.decorators import logged, timed
 from src.infra.exceptions import RuleError
@@ -153,7 +153,7 @@ class ExpertEngine:
 
         return AttackPlan(
             scan_id=scan_id,
-            generated_at=datetime.now(timezone.utc).isoformat(),
+            generated_at=datetime.now(UTC).isoformat(),
             vectors=self.attack_vectors,
             rules_fired=self.fired_rules,
         )

@@ -4,8 +4,10 @@ Evite de lancer un nouveau processus Chromium a chaque appel.
 Un seul navigateur est partage entre tous les modules du scanner.
 """
 
-from src.infra.logging import get_logger
+import contextlib
+
 from src.infra.exceptions import ExternalServiceError
+from src.infra.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -26,6 +28,7 @@ def get_browser():
 
     try:
         from playwright.sync_api import sync_playwright
+
         _playwright = sync_playwright().start()
         _browser = _playwright.chromium.launch(headless=True)
         logger.info("Chromium demarre (singleton)")
@@ -69,24 +72,18 @@ def new_page(url: str, timeout: int = 10000):
 def close_page(page):
     """Ferme une page sans fermer le navigateur."""
     if page:
-        try:
+        with contextlib.suppress(Exception):
             page.close()
-        except Exception:
-            pass
 
 
 def shutdown():
     """Ferme le navigateur et Playwright."""
     global _playwright, _browser
     if _browser:
-        try:
+        with contextlib.suppress(Exception):
             _browser.close()
-        except Exception:
-            pass
         _browser = None
     if _playwright:
-        try:
+        with contextlib.suppress(Exception):
             _playwright.stop()
-        except Exception:
-            pass
         _playwright = None

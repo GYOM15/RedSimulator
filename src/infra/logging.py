@@ -29,8 +29,8 @@ import logging
 import os
 import sys
 import traceback
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -60,10 +60,10 @@ _SETUP_DONE = False
 _RESET = "\033[0m"
 
 _LEVEL_COLORS: dict[int, str] = {
-    logging.DEBUG: "\033[37m",       # gray / white
-    logging.INFO: "\033[32m",        # green
-    logging.WARNING: "\033[33m",     # yellow
-    logging.ERROR: "\033[31m",       # red
+    logging.DEBUG: "\033[37m",  # gray / white
+    logging.INFO: "\033[32m",  # green
+    logging.WARNING: "\033[33m",  # yellow
+    logging.ERROR: "\033[31m",  # red
     logging.CRITICAL: "\033[1;31m",  # red bold
 }
 
@@ -81,6 +81,7 @@ def _supports_color() -> bool:
 # Text formatter
 # ---------------------------------------------------------------------------
 
+
 class TextFormatter(logging.Formatter):
     """Human-readable single-line formatter with optional ANSI colors.
 
@@ -93,14 +94,12 @@ class TextFormatter(logging.Formatter):
     ``NO_COLOR`` environment variable to disable colors unconditionally.
     """
 
-    def __init__(self, use_color: Optional[bool] = None) -> None:
+    def __init__(self, use_color: bool | None = None) -> None:
         super().__init__()
         self._use_color = use_color if use_color is not None else _supports_color()
 
-    def format(self, record: logging.LogRecord) -> str:  # noqa: D401
-        ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+    def format(self, record: logging.LogRecord) -> str:
+        ts = datetime.fromtimestamp(record.created, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
         level = record.levelname.ljust(8)
 
         if self._use_color:
@@ -122,6 +121,7 @@ class TextFormatter(logging.Formatter):
 # JSON formatter
 # ---------------------------------------------------------------------------
 
+
 class JsonFormatter(logging.Formatter):
     """Outputs one JSON object per log record (JSON Lines).
 
@@ -138,11 +138,9 @@ class JsonFormatter(logging.Formatter):
         logging.LogRecord("", 0, "", 0, "", (), None).__dict__.keys()
     ) | {"message", "asctime"}
 
-    def format(self, record: logging.LogRecord) -> str:  # noqa: D401
+    def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
-            "timestamp": datetime.fromtimestamp(
-                record.created, tz=timezone.utc
-            ).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
             "level": record.levelname,
             "module": record.name,
             "message": record.getMessage(),
@@ -155,9 +153,7 @@ class JsonFormatter(logging.Formatter):
 
         # Attach traceback when present.
         if record.exc_info:
-            payload["exception"] = "".join(
-                traceback.format_exception(*record.exc_info)
-            )
+            payload["exception"] = "".join(traceback.format_exception(*record.exc_info))
 
         return _json.dumps(payload, default=str, ensure_ascii=False)
 
@@ -165,6 +161,7 @@ class JsonFormatter(logging.Formatter):
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def setup_logging(
     level: str = "INFO",
@@ -184,7 +181,7 @@ def setup_logging(
         ``"text"`` for colored human-readable output, ``"json"`` for
         structured JSON Lines.
     """
-    global _SETUP_DONE  # noqa: PLW0603
+    global _SETUP_DONE
 
     if _SETUP_DONE:
         return

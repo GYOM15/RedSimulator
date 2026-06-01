@@ -12,8 +12,8 @@ Supporte un mode fixtures qui charge les JSON au lieu d'executer les vrais modul
 
 import json
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from src.infra.config import settings
 from src.infra.decorators import logged, timed
@@ -58,19 +58,27 @@ class RedSimulatorPipeline:
         """
         mode = "fixtures" if use_fixtures else "live"
         ts = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M (Quebec)")
-        logger.info("RedSimulator Pipeline — target=%s, mode=%s, date=%s", self.target_url, mode, ts)
+        logger.info(
+            "RedSimulator Pipeline — target=%s, mode=%s, date=%s", self.target_url, mode, ts
+        )
 
         # Etape 1 : Scanner
         self._step("1/5", "Scanner — Reconnaissance", lambda: self._run_scanner(use_fixtures))
 
         # Etape 2 : Expert
-        self._step("2/5", "Expert — Analyse des vulnerabilites", lambda: self._run_expert(use_fixtures))
+        self._step(
+            "2/5", "Expert — Analyse des vulnerabilites", lambda: self._run_expert(use_fixtures)
+        )
 
         # Etape 3 : Generator
-        self._step("3/5", "Generator — Generation de payloads", lambda: self._run_generator(use_fixtures))
+        self._step(
+            "3/5", "Generator — Generation de payloads", lambda: self._run_generator(use_fixtures)
+        )
 
         # Etape 4 : Executor
-        self._step("4/5", "Executor — Execution des attaques", lambda: self._run_executor(use_fixtures))
+        self._step(
+            "4/5", "Executor — Execution des attaques", lambda: self._run_executor(use_fixtures)
+        )
 
         # Etape 5 : Reporter
         self._step("5/5", "Reporter — Generation du rapport", lambda: self._run_reporter())
@@ -171,17 +179,13 @@ class RedSimulatorPipeline:
             from src.executor.runner import AttackExecutor
 
             executor = AttackExecutor(self.target_url)
-            self.attack_result = executor.execute_all(
-                self.attack_plan, self.payload_result
-            )
+            self.attack_result = executor.execute_all(self.attack_plan, self.payload_result)
 
     def _run_reporter(self) -> None:
         """Genere le rapport."""
         from src.reporter.report_generator import generate_report
 
-        self.report = generate_report(
-            self.scan_result, self.attack_plan, self.attack_result
-        )
+        self.report = generate_report(self.scan_result, self.attack_plan, self.attack_result)
         logger.info("Rapport genere: %d caracteres", len(self.report))
 
     def _save_results(self) -> None:

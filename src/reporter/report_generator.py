@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 
 from src.infra.config import settings
 from src.infra.decorators import logged
-from src.infra.exceptions import ReporterError
 from src.infra.logging import get_logger
 from src.models import AttackPlan, AttackResult, ScanResult
 
@@ -112,9 +111,7 @@ def _generate_template(
     vuln_rows = []
     for v in plan.vectors:
         # Trouver si l'attaque a reussi
-        success = any(
-            r.success and r.vector_id == v.id for r in results.results
-        )
+        success = any(r.success and r.vector_id == v.id for r in results.results)
         status = "Exploitee" if success else "Non exploitee"
         vuln_rows.append(
             f"| {v.id} | {v.attack_type.value} | {v.severity.value} | "
@@ -180,7 +177,7 @@ def _generate_template(
 
             **Date :** {now}
             **Cible :** {scan.target}
-            **Technologies :** {', '.join(scan.technologies)}
+            **Technologies :** {", ".join(scan.technologies)}
 
             ---
 
@@ -211,12 +208,12 @@ def _generate_template(
 
             | Severite | Nombre |
             |----------|--------|
-            | CRITICAL | {severity_counts.get('CRITICAL', 0)} |
-            | HIGH | {severity_counts.get('HIGH', 0)} |
-            | MEDIUM | {severity_counts.get('MEDIUM', 0)} |
-            | LOW | {severity_counts.get('LOW', 0)} |
+            | CRITICAL | {severity_counts.get("CRITICAL", 0)} |
+            | HIGH | {severity_counts.get("HIGH", 0)} |
+            | MEDIUM | {severity_counts.get("MEDIUM", 0)} |
+            | LOW | {severity_counts.get("LOW", 0)} |
 
-            **Score global : {'CRITIQUE' if severity_counts.get('CRITICAL', 0) > 0 else 'ELEVE'}**
+            **Score global : {"CRITIQUE" if severity_counts.get("CRITICAL", 0) > 0 else "ELEVE"}**
 
             ---
 

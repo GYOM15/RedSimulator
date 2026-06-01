@@ -10,8 +10,8 @@ import torch
 from src.infra.config import settings
 from src.infra.logging import get_logger, setup_logging
 
-from .vae_model import PayloadVAE
 from .generate import generate_from_fixture
+from .vae_model import PayloadVAE
 
 setup_logging()
 logger = get_logger(__name__)

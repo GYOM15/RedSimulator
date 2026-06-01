@@ -13,6 +13,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 from src.infra.logging import get_logger
+
 from .http_utils import safe_request
 
 logger = get_logger(__name__)
@@ -30,7 +31,7 @@ def load_common_paths() -> list[dict]:
 
 def crawl_html_links(target: str) -> set:
     """Extrait les liens internes depuis le HTML statique."""
-    resp, error = safe_request(target)
+    resp, _error = safe_request(target)
     if resp is None:
         return set()
 
@@ -56,7 +57,7 @@ def crawl_js_routes(target: str) -> list[dict]:
     Returns:
         Liste de dicts {"path": ..., "method": ...}
     """
-    resp, error = safe_request(target)
+    resp, _error = safe_request(target)
     if resp is None:
         return []
 
@@ -85,7 +86,7 @@ def crawl_dynamic(target: str) -> set:
     Returns:
         Set de chemins decouverts.
     """
-    from .browser import new_page, close_page
+    from .browser import close_page, new_page
 
     links = set()
     page = new_page(target)
@@ -146,7 +147,9 @@ def build_paths_list(target: str) -> list[dict]:
         logger.debug("Peu de routes statiques — lancement Playwright")
         dynamic_links = crawl_dynamic(target)
     else:
-        logger.debug("%d routes statiques — Playwright non necessaire", len(html_links) + len(js_routes))
+        logger.debug(
+            "%d routes statiques — Playwright non necessaire", len(html_links) + len(js_routes)
+        )
         dynamic_links = set()
 
     seen = set()
@@ -170,11 +173,19 @@ def build_paths_list(target: str) -> list[dict]:
             seen.add(path)
             all_paths.append({"path": path, "method": "GET"})
 
-    logger.debug("Total: %d config + %d HTML + %d JS + %d dynamiques = %d uniques", len(config_paths), len(html_links), len(js_routes), len(dynamic_links), len(all_paths))
+    logger.debug(
+        "Total: %d config + %d HTML + %d JS + %d dynamiques = %d uniques",
+        len(config_paths),
+        len(html_links),
+        len(js_routes),
+        len(dynamic_links),
+        len(all_paths),
+    )
     return all_paths
 
 
 # ---------- Helpers prives ----------
+
 
 def _extract_js_urls(soup: BeautifulSoup, target: str) -> list[str]:
     """Extrait les URLs des fichiers JS depuis le HTML."""
@@ -212,7 +223,7 @@ def _extract_routes_from_js(js_url: str) -> list[dict]:
     Returns:
         Liste de dicts {"path": ..., "method": ...}
     """
-    js_resp, error = safe_request(js_url, timeout=5)
+    js_resp, _error = safe_request(js_url, timeout=5)
     if js_resp is None:
         return []
 

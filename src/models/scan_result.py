@@ -13,9 +13,7 @@ class PortInfo(BaseModel):
 
     model_config = ConfigDict(
         json_schema_extra={
-            "examples": [
-                {"port": 3000, "service": "http", "version": "Node.js Express"}
-            ]
+            "examples": [{"port": 3000, "service": "http", "version": "Node.js Express"}]
         }
     )
 
@@ -114,9 +112,7 @@ class ScanResult(BaseModel):
                 {
                     "target": "http://localhost:3000",
                     "scan_timestamp": "2025-01-15T10:30:00Z",
-                    "open_ports": [
-                        {"port": 3000, "service": "http", "version": "Node.js Express"}
-                    ],
+                    "open_ports": [{"port": 3000, "service": "http", "version": "Node.js Express"}],
                     "endpoints": [
                         {
                             "path": "/rest/user/login",
@@ -175,31 +171,56 @@ class ScanResult(BaseModel):
 
         # --- Info serveur exposee (5 points) ---
         if self.headers.server_info_leaked:
-            findings.append({"severity": "moyen", "detail": "Information serveur exposee (Server/X-Powered-By)"})
+            findings.append(
+                {"severity": "moyen", "detail": "Information serveur exposee (Server/X-Powered-By)"}
+            )
             score += 5
 
         # --- Endpoints sans auth (max 25 points) ---
-        api_no_auth = [ep for ep in self.endpoints
-                       if ep.status_code == 200
-                       and (ep.path.startswith("/api/") or ep.path.startswith("/rest/"))
-                       and not ep.auth_required]
+        api_no_auth = [
+            ep
+            for ep in self.endpoints
+            if ep.status_code == 200
+            and (ep.path.startswith("/api/") or ep.path.startswith("/rest/"))
+            and not ep.auth_required
+        ]
         if api_no_auth:
-            findings.append({"severity": "eleve", "detail": f"{len(api_no_auth)} endpoint(s) API publics sans authentification"})
+            findings.append(
+                {
+                    "severity": "eleve",
+                    "detail": f"{len(api_no_auth)} endpoint(s) API publics sans authentification",
+                }
+            )
             score += min(len(api_no_auth) * 3, 25)
 
         # --- Endpoints admin accessibles (15 points) ---
-        admin_eps = [ep for ep in self.endpoints
-                     if ep.status_code == 200
-                     and any(k in ep.path.lower() for k in ("admin", "dashboard", "manage"))]
+        admin_eps = [
+            ep
+            for ep in self.endpoints
+            if ep.status_code == 200
+            and any(k in ep.path.lower() for k in ("admin", "dashboard", "manage"))
+        ]
         if admin_eps:
-            findings.append({"severity": "critique", "detail": f"Interface admin accessible: {', '.join(ep.path for ep in admin_eps[:3])}"})
+            findings.append(
+                {
+                    "severity": "critique",
+                    "detail": f"Interface admin accessible: {', '.join(ep.path for ep in admin_eps[:3])}",
+                }
+            )
             score += 15
 
         # --- Formulaires sans protection (max 10 points) ---
         if self.forms:
-            csp_missing = "Content-Security-Policy" not in [h for h in self.headers.missing_security_headers]
+            csp_missing = "Content-Security-Policy" not in [
+                h for h in self.headers.missing_security_headers
+            ]
             if not csp_missing:  # CSP manquant
-                findings.append({"severity": "eleve", "detail": f"{len(self.forms)} formulaire(s) sans CSP — risque XSS"})
+                findings.append(
+                    {
+                        "severity": "eleve",
+                        "detail": f"{len(self.forms)} formulaire(s) sans CSP — risque XSS",
+                    }
+                )
                 score += 10
 
         # --- Technologies obsoletes ou a risque (max 15 points) ---
@@ -211,14 +232,24 @@ class ScanResult(BaseModel):
             if "jwt" in tech_lower:
                 risky_techs.append(tech)
         if risky_techs:
-            findings.append({"severity": "moyen", "detail": f"Technologies a surveiller: {', '.join(risky_techs)}"})
+            findings.append(
+                {
+                    "severity": "moyen",
+                    "detail": f"Technologies a surveiller: {', '.join(risky_techs)}",
+                }
+            )
             score += len(risky_techs) * 5
 
         # --- Ports non-web ouverts (max 10 points) ---
         non_web_ports = [p for p in self.open_ports if p.port not in (80, 443, 8080, 8443)]
         db_ports = [p for p in non_web_ports if p.port in (3306, 5432, 27017, 6379, 9200, 1433)]
         if db_ports:
-            findings.append({"severity": "critique", "detail": f"Port(s) base de donnees expose(s): {', '.join(str(p.port) for p in db_ports)}"})
+            findings.append(
+                {
+                    "severity": "critique",
+                    "detail": f"Port(s) base de donnees expose(s): {', '.join(str(p.port) for p in db_ports)}",
+                }
+            )
             score += len(db_ports) * 10
 
         # Clamp et level

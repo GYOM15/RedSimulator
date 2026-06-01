@@ -7,13 +7,12 @@ les changements de surface d'attaque.
 Fichier: data/scan_history.json
 """
 
-import json
 import hashlib
-from datetime import datetime
+import json
 from pathlib import Path
 
-from src.infra.logging import get_logger
 from src.infra.decorators import safe
+from src.infra.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -134,7 +133,9 @@ def get_previous_context(target: str) -> str:
         if last["risk_score"] != prev["risk_score"]:
             delta = last["risk_score"] - prev["risk_score"]
             direction = "augmente" if delta > 0 else "diminue"
-            lines.append(f"  Score de risque {direction}: {prev['risk_score']} -> {last['risk_score']}")
+            lines.append(
+                f"  Score de risque {direction}: {prev['risk_score']} -> {last['risk_score']}"
+            )
 
         if not (new_eps or removed_eps or new_ports or removed_ports):
             lines.append("  Aucun changement significatif detecte.")
@@ -157,9 +158,17 @@ def _detect_changes(previous_scans: list, current: dict) -> dict:
     removed_ports = set(last["ports"]) - set(current["ports"])
 
     if new_eps:
-        changes.append({"type": "new_endpoints", "count": len(new_eps), "details": list(new_eps)[:10]})
+        changes.append(
+            {"type": "new_endpoints", "count": len(new_eps), "details": list(new_eps)[:10]}
+        )
     if removed_eps:
-        changes.append({"type": "removed_endpoints", "count": len(removed_eps), "details": list(removed_eps)[:10]})
+        changes.append(
+            {
+                "type": "removed_endpoints",
+                "count": len(removed_eps),
+                "details": list(removed_eps)[:10],
+            }
+        )
     if new_ports:
         changes.append({"type": "new_ports", "details": list(new_ports)})
     if removed_ports:
@@ -167,6 +176,8 @@ def _detect_changes(previous_scans: list, current: dict) -> dict:
 
     score_delta = current["risk_score"] - last["risk_score"]
     if abs(score_delta) >= 5:
-        changes.append({"type": "risk_change", "from": last["risk_score"], "to": current["risk_score"]})
+        changes.append(
+            {"type": "risk_change", "from": last["risk_score"], "to": current["risk_score"]}
+        )
 
     return {"first_scan": False, "changes": changes}

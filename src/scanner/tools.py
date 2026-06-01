@@ -10,12 +10,13 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
-from src.infra.logging import get_logger
 from src.infra.config import settings
-from src.infra.decorators import timed, safe
-from .http_utils import safe_request, parallel_requests, error_json
+from src.infra.decorators import safe, timed
+from src.infra.logging import get_logger
+
 from .crawlers import build_paths_list
-from .form_parsing import analyze_static_forms, analyze_dynamic_forms
+from .form_parsing import analyze_dynamic_forms, analyze_static_forms
+from .http_utils import error_json, parallel_requests, safe_request
 
 logger = get_logger(__name__)
 
@@ -81,14 +82,16 @@ def _build_port_summary(ports: list) -> str:
 def _port_scan_docker(host: str, ports: str) -> list | None:
     """Scan via le micro-service nmap Docker."""
     nmap_url = settings.recon_service_url
-    resp, error = safe_request(f"{nmap_url}/scan?host={host}&ports={ports}", timeout=settings.request_timeout)
+    resp, _error = safe_request(
+        f"{nmap_url}/scan?host={host}&ports={ports}", timeout=settings.request_timeout
+    )
     if resp is None:
         logger.debug("Service nmap Docker non disponible")
         return None
 
     data = resp.json()
     if "error" in data:
-        logger.warning("Service nmap erreur: %s", data['error'])
+        logger.warning("Service nmap erreur: %s", data["error"])
         return None
 
     results = data.get("results", [])
@@ -100,19 +103,23 @@ def _port_scan_docker(host: str, ports: str) -> list | None:
 def _port_scan_nmap(host: str, ports: str) -> list | None:
     """Scan via nmap local."""
     import nmap
+
     nm = nmap.PortScanner()
     nm.scan(host, ports, arguments="-sV --version-intensity 2")
 
     results = []
     for proto in nm[host].all_protocols():
-        for port in nm[host][proto].keys():
+        for port in nm[host][proto]:
             state = nm[host][proto][port]
             if state["state"] == "open":
-                results.append({
-                    "port": port,
-                    "service": state.get("name", "unknown"),
-                    "version": f"{state.get('product', '')} {state.get('version', '')}".strip() or None,
-                })
+                results.append(
+                    {
+                        "port": port,
+                        "service": state.get("name", "unknown"),
+                        "version": f"{state.get('product', '')} {state.get('version', '')}".strip()
+                        or None,
+                    }
+                )
 
     logger.info("%d ports trouves (nmap local)", len(results))
     return results
@@ -147,7 +154,11 @@ def _port_scan_socket(host: str, ports: str) -> list:
 def _analyze_cookies(resp) -> list:
     """Analyse les cookies pour les flags de securite."""
     cookies = []
-    for cookie_header in resp.headers.get_all("Set-Cookie") if hasattr(resp.headers, "get_all") else [resp.headers.get("Set-Cookie", "")]:
+    for cookie_header in (
+        resp.headers.get_all("Set-Cookie")
+        if hasattr(resp.headers, "get_all")
+        else [resp.headers.get("Set-Cookie", "")]
+    ):
         if not cookie_header:
             continue
 
@@ -162,11 +173,17 @@ def _analyze_cookies(resp) -> list:
         if "samesite" not in lower:
             issues.append("SameSite manquant")
 
-        cookie_info = {"name": name, "secure": "secure" in lower, "httponly": "httponly" in lower, "samesite": "samesite" in lower, "issues": issues}
+        cookie_info = {
+            "name": name,
+            "secure": "secure" in lower,
+            "httponly": "httponly" in lower,
+            "samesite": "samesite" in lower,
+            "issues": issues,
+        }
         cookies.append(cookie_info)
 
         if issues:
-            logger.debug("Cookie '%s' : %s", name, ', '.join(issues))
+            logger.debug("Cookie '%s' : %s", name, ", ".join(issues))
         else:
             logger.debug("Cookie '%s' : bien configure", name)
 
@@ -177,12 +194,19 @@ def _check_cors(target: str) -> dict:
     """Verifie la configuration CORS."""
     import requests
 
-    cors_result = {"misconfigured": False, "allows_any_origin": False, "allows_credentials": False, "details": ""}
+    cors_result = {
+        "misconfigured": False,
+        "allows_any_origin": False,
+        "allows_credentials": False,
+        "details": "",
+    }
 
     try:
         # Envoyer une requete avec un Origin malveillant
         headers = {"Origin": "https://evil-attacker.com"}
-        resp = requests.get(target, headers=headers, timeout=settings.request_timeout, allow_redirects=False)
+        resp = requests.get(
+            target, headers=headers, timeout=settings.request_timeout, allow_redirects=False
+        )
 
         acao = resp.headers.get("Access-Control-Allow-Origin", "")
         acac = resp.headers.get("Access-Control-Allow-Credentials", "")
@@ -256,7 +280,12 @@ def _calibrate_soft404(base_url: str) -> dict | None:
 
     # Utiliser la mediane comme reference
     ref = signatures[len(signatures) // 2]
-    logger.debug("Soft-404 calibre: %d bytes, %d words, status %d", ref['length'], ref['words'], ref['status'])
+    logger.debug(
+        "Soft-404 calibre: %d bytes, %d words, status %d",
+        ref["length"],
+        ref["words"],
+        ref["status"],
+    )
     return ref
 
 
@@ -305,12 +334,11 @@ def _is_soft404(resp, calibration: dict | None) -> bool:
     return False
 
 
-
 # Patterns de parametres dans les URLs
 PARAM_PATTERNS = [
-    (r'\{(\w+)\}', "path_param"),     # /api/users/{id}
-    (r':(\w+)', "path_param"),        # /api/users/:id
-    (r'\?(.+)', "query_param"),       # /search?q=test
+    (r"\{(\w+)\}", "path_param"),  # /api/users/{id}
+    (r":(\w+)", "path_param"),  # /api/users/:id
+    (r"\?(.+)", "query_param"),  # /search?q=test
 ]
 
 
@@ -345,7 +373,9 @@ def endpoint_discovery(target: str) -> str:
     url_list = [(f"{base_url}{entry['path']}", entry["method"]) for entry in all_paths]
     path_map = {f"{base_url}{entry['path']}": entry["path"] for entry in all_paths}
 
-    results = parallel_requests(url_list, timeout=settings.request_timeout, max_workers=settings.max_concurrent_requests)
+    results = parallel_requests(
+        url_list, timeout=settings.request_timeout, max_workers=settings.max_concurrent_requests
+    )
 
     for url, method, resp in results:
         if resp is None:
@@ -380,16 +410,20 @@ def endpoint_discovery(target: str) -> str:
     summary = _build_discovery_summary(endpoints, sensitive_findings)
 
     logger.info("%d endpoints decouverts", len(endpoints))
-    return json.dumps({
-        "endpoints": endpoints,
-        "sensitive_findings": sensitive_findings,
-        "summary": summary,
-    }, indent=2)
+    return json.dumps(
+        {
+            "endpoints": endpoints,
+            "sensitive_findings": sensitive_findings,
+            "summary": summary,
+        },
+        indent=2,
+    )
 
 
 def _extract_parameters(path: str, resp) -> list:
     """Extrait les parametres depuis le path et le contenu."""
     import re
+
     params = []
 
     # Path params : /api/users/{id} ou /rest/basket/:id
@@ -406,7 +440,7 @@ def _extract_parameters(path: str, resp) -> list:
     parts = path.rstrip("/").split("/")
     for i, part in enumerate(parts):
         if part.isdigit() and i > 0:
-            params.append(f"{parts[i-1]}_id")
+            params.append(f"{parts[i - 1]}_id")
 
     # Si c'est du JSON, extraire les cles du body
     content_type = resp.headers.get("Content-Type", "")
@@ -418,11 +452,10 @@ def _extract_parameters(path: str, resp) -> list:
                 for key in list(body.keys())[:10]:
                     if key not in ("status", "data", "message"):
                         params.append(key)
-            elif isinstance(body, list) and body:
+            elif isinstance(body, list) and body and isinstance(body[0], dict):
                 # Cles du premier element
-                if isinstance(body[0], dict):
-                    for key in list(body[0].keys())[:10]:
-                        params.append(key)
+                for key in list(body[0].keys())[:10]:
+                    params.append(key)
         except Exception:
             pass
 
@@ -441,10 +474,18 @@ def _analyze_sensitive_content(path: str, resp) -> dict | None:
 
     # Pattern 1 : Variables d'environnement (KEY=VALUE)
     import re
-    env_vars = re.findall(r'^([A-Z_]{3,})=(.+)$', content, re.MULTILINE)
-    sensitive_vars = [k for k, v in env_vars if any(s in k.lower() for s in ("key", "secret", "password", "token", "database", "api"))]
+
+    env_vars = re.findall(r"^([A-Z_]{3,})=(.+)$", content, re.MULTILINE)
+    sensitive_vars = [
+        k
+        for k, v in env_vars
+        if any(s in k.lower() for s in ("key", "secret", "password", "token", "database", "api"))
+    ]
     if sensitive_vars:
-        return {"path": path, "details": f"Variables d'environnement exposees ({len(env_vars)} total, {len(sensitive_vars)} sensibles) : {', '.join(sensitive_vars[:5])}"}
+        return {
+            "path": path,
+            "details": f"Variables d'environnement exposees ({len(env_vars)} total, {len(sensitive_vars)} sensibles) : {', '.join(sensitive_vars[:5])}",
+        }
 
     # Pattern 2 : Documentation API (OpenAPI/Swagger)
     try:
@@ -452,10 +493,16 @@ def _analyze_sensitive_content(path: str, resp) -> dict | None:
         if isinstance(data, dict):
             if "paths" in data or "swagger" in data or "openapi" in data:
                 paths = list(data.get("paths", {}).keys())
-                return {"path": path, "details": f"Documentation API exposee avec {len(paths)} endpoints : {', '.join(paths[:8])}"}
+                return {
+                    "path": path,
+                    "details": f"Documentation API exposee avec {len(paths)} endpoints : {', '.join(paths[:8])}",
+                }
             if "dependencies" in data:
                 deps = list(data["dependencies"].keys())
-                return {"path": path, "details": f"Manifest de dependances expose ({len(deps)}) : {', '.join(deps[:8])}"}
+                return {
+                    "path": path,
+                    "details": f"Manifest de dependances expose ({len(deps)}) : {', '.join(deps[:8])}",
+                }
     except Exception:
         pass
 
@@ -464,12 +511,20 @@ def _analyze_sensitive_content(path: str, resp) -> dict | None:
         return {"path": path, "details": "Repertoire de controle de version expose (Git)"}
 
     # Pattern 4 : Cles ou tokens dans le contenu brut
-    key_patterns = re.findall(r'(?:api[_-]?key|secret|token|password)\s*[:=]\s*["\']?([a-zA-Z0-9_\-]{16,})', content_lower)
+    key_patterns = re.findall(
+        r'(?:api[_-]?key|secret|token|password)\s*[:=]\s*["\']?([a-zA-Z0-9_\-]{16,})', content_lower
+    )
     if key_patterns:
-        return {"path": path, "details": f"{len(key_patterns)} cle(s)/token(s) potentiellement exposes dans le contenu"}
+        return {
+            "path": path,
+            "details": f"{len(key_patterns)} cle(s)/token(s) potentiellement exposes dans le contenu",
+        }
 
     # Pattern 5 : Code source (PHP, Python, Java, etc.)
-    if any(marker in content for marker in ("<?php", "#!/usr/bin", "import java.", "from django", "require('")):
+    if any(
+        marker in content
+        for marker in ("<?php", "#!/usr/bin", "import java.", "from django", "require('")
+    ):
         return {"path": path, "details": "Code source applicatif expose"}
 
     return None
@@ -486,7 +541,7 @@ def _build_discovery_summary(endpoints: list, sensitive_findings: list) -> str:
         code = ep["status_code"]
         by_status.setdefault(code, []).append(ep)
 
-    with_params = [ep for ep in endpoints if ep.get("parameters")]
+    [ep for ep in endpoints if ep.get("parameters")]
 
     lines = [f"{total} endpoints decouverts."]
 
@@ -497,21 +552,21 @@ def _build_discovery_summary(endpoints: list, sensitive_findings: list) -> str:
 
     # Lister TOUS les endpoints publics (200) avec leurs parametres
     if 200 in by_status:
-        lines.append(f"\nEndpoints publics (200) :")
+        lines.append("\nEndpoints publics (200) :")
         for ep in by_status[200]:
             params = f" params={ep['parameters']}" if ep.get("parameters") else ""
             lines.append(f"  {ep['method']} {ep['path']}{params}")
 
     # Lister les endpoints proteges (401)
     if 401 in by_status:
-        lines.append(f"\nEndpoints proteges (401) :")
+        lines.append("\nEndpoints proteges (401) :")
         for ep in by_status[401]:
             lines.append(f"  {ep['method']} {ep['path']}")
 
     # Autres codes (400, 403, etc.)
     other_codes = [c for c in by_status if c not in (200, 401)]
     if other_codes:
-        lines.append(f"\nAutres reponses :")
+        lines.append("\nAutres reponses :")
         for code in other_codes:
             for ep in by_status[code]:
                 lines.append(f"  {ep['method']} {ep['path']} -> {code}")
@@ -654,6 +709,7 @@ def probe_endpoint(target: str, path: str, method: str = "GET", body: str = "") 
     if body:
         try:
             import json as json_mod
+
             json_body = json_mod.loads(body)
         except Exception:
             json_body = {}
@@ -672,10 +728,20 @@ def probe_endpoint(target: str, path: str, method: str = "GET", body: str = "") 
         "status_code": resp.status_code,
         "content_type": resp.headers.get("Content-Type", ""),
         "body_preview": body_preview,
-        "headers": {k: v for k, v in resp_headers.items() if k.lower() in (
-            "server", "x-powered-by", "content-type", "set-cookie",
-            "access-control-allow-origin", "www-authenticate", "location",
-        )},
+        "headers": {
+            k: v
+            for k, v in resp_headers.items()
+            if k.lower()
+            in (
+                "server",
+                "x-powered-by",
+                "content-type",
+                "set-cookie",
+                "access-control-allow-origin",
+                "www-authenticate",
+                "location",
+            )
+        },
     }
 
     logger.debug("  [+] %s %s -> %d", method, path, resp.status_code)
@@ -698,6 +764,7 @@ def tech_detector(target: str) -> str:
         JSON avec la liste des technologies detectees.
     """
     from .tech_detector import detect_technologies as _detect
+
     techs = _detect(target)
     return json.dumps({"technologies": techs}, indent=2)
 
@@ -775,7 +842,9 @@ def _bruteforce_ffuf(target: str, wordlist_path: str) -> tuple[list, list] | Non
     # 1. Service Docker recon-tools
     recon_url = settings.recon_service_url
     try:
-        resp, error = safe_request(f"{recon_url}/bruteforce?url={base_url}&wordlist={category}", timeout=60)
+        resp, _error = safe_request(
+            f"{recon_url}/bruteforce?url={base_url}&wordlist={category}", timeout=60
+        )
         if resp and resp.status_code == 200:
             data = resp.json()
             found = data.get("results", [])
@@ -816,18 +885,25 @@ def _bruteforce_ffuf(target: str, wordlist_path: str) -> tuple[list, list] | Non
 
         cmd = [
             ffuf_bin,
-            "-u", f"{base_url}/FUZZ",
-            "-w", wordlist_path,
-            "-o", tmp_path,
-            "-of", "json",
+            "-u",
+            f"{base_url}/FUZZ",
+            "-w",
+            wordlist_path,
+            "-o",
+            tmp_path,
+            "-of",
+            "json",
             "-ac",
-            "-t", "10",
-            "-timeout", "3",
-            "-mc", "200,201,301,302,401,403",
+            "-t",
+            "10",
+            "-timeout",
+            "3",
+            "-mc",
+            "200,201,301,302,401,403",
             "-s",
         ]
 
-        logger.debug("ffuf local: %s...", ' '.join(cmd[:6]))
+        logger.debug("ffuf local: %s...", " ".join(cmd[:6]))
         subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
         if not os.path.exists(tmp_path):
@@ -849,10 +925,17 @@ def _bruteforce_ffuf(target: str, wordlist_path: str) -> tuple[list, list] | Non
                 "content_length": result.get("length", 0),
             }
             found.append(entry)
-            logger.debug("  [+] %s -> %d (%d bytes) [ffuf]", path, entry['status_code'], entry['content_length'])
+            logger.debug(
+                "  [+] %s -> %d (%d bytes) [ffuf]",
+                path,
+                entry["status_code"],
+                entry["content_length"],
+            )
 
             if entry["status_code"] == 200:
-                is_page = "text/html" in entry["content_type"].lower() and entry["content_length"] > 1000
+                is_page = (
+                    "text/html" in entry["content_type"].lower() and entry["content_length"] > 1000
+                )
                 if not is_page:
                     probe_resp, _ = safe_request(f"{base_url}{path}", timeout=3)
                     if probe_resp:
@@ -870,8 +953,11 @@ def _bruteforce_ffuf(target: str, wordlist_path: str) -> tuple[list, list] | Non
 
 def _bruteforce_python(target: str, wordlist_path: Path) -> tuple[list, list]:
     """Fallback Python : requetes paralleles + calibration soft-404."""
-    paths = [line.strip() for line in wordlist_path.read_text().splitlines()
-             if line.strip() and not line.startswith("#")]
+    paths = [
+        line.strip()
+        for line in wordlist_path.read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
     logger.debug("Fallback Python: %d chemins a tester", len(paths))
 
     base_url = target.rstrip("/")
@@ -884,9 +970,11 @@ def _bruteforce_python(target: str, wordlist_path: Path) -> tuple[list, list]:
     url_list = [(f"{base_url}/{path}", "GET") for path in paths]
     path_map = {f"{base_url}/{path}": f"/{path}" for path in paths}
 
-    results = parallel_requests(url_list, timeout=settings.request_timeout, max_workers=settings.max_concurrent_requests)
+    results = parallel_requests(
+        url_list, timeout=settings.request_timeout, max_workers=settings.max_concurrent_requests
+    )
 
-    for url, method, resp in results:
+    for url, _method, resp in results:
         if resp is None:
             continue
         if resp.status_code in (404, 500, 502, 503):
@@ -943,7 +1031,9 @@ def dns_enum(target: str) -> str:
 
     # Ne pas enumerer localhost/IPs
     if domain in ("localhost", "127.0.0.1") or re.match(r"^\d+\.\d+\.\d+\.\d+$", domain):
-        return json.dumps({"subdomains": [], "summary": "Enumeration DNS non applicable sur localhost/IP."})
+        return json.dumps(
+            {"subdomains": [], "summary": "Enumeration DNS non applicable sur localhost/IP."}
+        )
 
     logger.info("Enumeration DNS sur %s...", domain)
 
@@ -958,7 +1048,9 @@ def dns_enum(target: str) -> str:
 
             summary = f"{len(results)} sous-domaine(s) decouvert(s) pour {domain}."
             if results:
-                summary += "\n" + "\n".join(f"  {r['subdomain']} -> {r['ip']}" for r in results[:20])
+                summary += "\n" + "\n".join(
+                    f"  {r['subdomain']} -> {r['ip']}" for r in results[:20]
+                )
             logger.info("%d sous-domaines trouves", len(results))
             return json.dumps({"subdomains": results, "summary": summary}, indent=2)
     except Exception:
@@ -1021,10 +1113,8 @@ def _dns_crtsh(domain: str) -> set:
             name = entry.get("name_value", "")
             for sub in name.split("\n"):
                 sub = sub.strip().lower()
-                if sub.endswith(f".{domain}") or sub == domain:
-                    # Ignorer les wildcards
-                    if not sub.startswith("*"):
-                        subdomains.add(sub)
+                if (sub.endswith(f".{domain}") or sub == domain) and not sub.startswith("*"):
+                    subdomains.add(sub)
         logger.debug("crt.sh: %d sous-domaines", len(subdomains))
 
     return subdomains
@@ -1034,14 +1124,23 @@ def _dns_bruteforce(domain: str) -> set:
     """Bruteforce DNS avec la wordlist SecLists."""
     import socket
 
-    wordlist_path = Path(__file__).parent.parent.parent / "data" / "wordlists" / "seclists" / "dns-subdomains.txt"
+    wordlist_path = (
+        Path(__file__).parent.parent.parent
+        / "data"
+        / "wordlists"
+        / "seclists"
+        / "dns-subdomains.txt"
+    )
     if not wordlist_path.exists():
         logger.debug("Wordlist DNS non disponible (lancer scripts/setup_wordlists.sh)")
         return set()
 
     # Limiter a 500 pour ne pas etre trop lent
-    prefixes = [line.strip() for line in wordlist_path.read_text().splitlines()
-                if line.strip() and not line.startswith("#")][:500]
+    prefixes = [
+        line.strip()
+        for line in wordlist_path.read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    ][:500]
 
     logger.debug("DNS bruteforce: %d prefixes a tester...", len(prefixes))
     subdomains = set()
@@ -1091,6 +1190,7 @@ def _resolve_subdomains(subdomains: list) -> list:
 
 if __name__ == "__main__":
     from src.infra.logging import setup_logging
+
     setup_logging(level=settings.log_level, fmt=settings.log_format)
 
     logger.info("=== Test des outils de scan ===")
@@ -1116,4 +1216,8 @@ if __name__ == "__main__":
     logger.info(directory_bruteforce.invoke({"target": target, "category": "sensitive"}))
 
     logger.info("--- Probe Endpoint ---")
-    logger.info(probe_endpoint.invoke({"target": target, "path": "/rest/user/login", "method": "POST", "body": "{}"}))
+    logger.info(
+        probe_endpoint.invoke(
+            {"target": target, "path": "/rest/user/login", "method": "POST", "body": "{}"}
+        )
+    )

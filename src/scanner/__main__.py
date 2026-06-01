@@ -5,8 +5,9 @@ Usage: python3 -m src.scanner [--fixtures]
 
 import sys
 
-from src.infra.logging import setup_logging, get_logger
 from src.infra.config import settings
+from src.infra.logging import get_logger, setup_logging
+
 from .agent import ReconAgent
 
 setup_logging(level=settings.log_level, fmt=settings.log_format)
@@ -27,11 +28,11 @@ else:
         logger.info("=" * 60)
         for step in agent.agent_messages:
             if step["type"] == "think":
-                logger.info("  THINK: %s", step['content'][:200])
+                logger.info("  THINK: %s", step["content"][:200])
             elif step["type"] == "act":
-                logger.info("  ACT:   %s(%s)", step['tool'], step['args'])
+                logger.info("  ACT:   %s(%s)", step["tool"], step["args"])
             elif step["type"] == "observe":
-                logger.info("  OBS:   %s -> %s", step['tool'], step['content'][:100])
+                logger.info("  OBS:   %s -> %s", step["tool"], step["content"][:100])
 
 logger.info("=" * 60)
 logger.info("Resultat du scan:")

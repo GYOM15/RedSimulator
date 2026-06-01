@@ -126,9 +126,7 @@ class AttackExecutor:
         """
         raise AttackError("_test_idor n'est pas encore implemente", vector_id=vector.id)
 
-    def _test_path_traversal(
-        self, vector: AttackVector, payload: str
-    ) -> SingleAttackResult:
+    def _test_path_traversal(self, vector: AttackVector, payload: str) -> SingleAttackResult:
         """Teste une attaque path traversal sur l'endpoint cible.
 
         TODO: Implementer le test path traversal.
@@ -140,9 +138,7 @@ class AttackExecutor:
 
     @logged
     @timed
-    def execute_all(
-        self, attack_plan: AttackPlan, payload_result: PayloadResult
-    ) -> AttackResult:
+    def execute_all(self, attack_plan: AttackPlan, payload_result: PayloadResult) -> AttackResult:
         """Execute toutes les attaques du plan.
 
         Args:
@@ -210,10 +206,7 @@ class AttackExecutor:
     def from_fixtures() -> AttackResult:
         """Charge le resultat depuis la fixture JSON."""
         fixture_path = (
-            Path(__file__).parent.parent.parent
-            / "data"
-            / "fixtures"
-            / "attack_result.json"
+            Path(__file__).parent.parent.parent / "data" / "fixtures" / "attack_result.json"
         )
         logger.info("Chargement de la fixture: %s", fixture_path)
         data = json.loads(fixture_path.read_text())

@@ -5,12 +5,12 @@ les vecteurs d'attaque identifies, classes par severite, avec les
 payloads de base a tester.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     """Niveaux de severite OWASP."""
 
     CRITICAL = "CRITICAL"
@@ -19,7 +19,7 @@ class Severity(str, Enum):
     LOW = "LOW"
 
 
-class AttackType(str, Enum):
+class AttackType(StrEnum):
     """Types d'attaques supportes."""
 
     sqli = "sqli"

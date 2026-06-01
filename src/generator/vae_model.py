@@ -53,7 +53,7 @@ def encode_payload(payload: str) -> list[int]:
     Ajoute START et END tokens, puis padde jusqu'a MAX_LEN.
     """
     indices = [START_IDX]
-    for ch in payload[:MAX_LEN - 2]:
+    for ch in payload[: MAX_LEN - 2]:
         indices.append(CHAR_TO_IDX.get(ch, CHAR_TO_IDX[" "]))
     indices.append(END_IDX)
 
@@ -71,7 +71,7 @@ def decode_indices(indices: list[int]) -> str:
     """
     chars = []
     for idx in indices:
-        if idx == END_IDX or idx == PAD_IDX:
+        if idx in (END_IDX, PAD_IDX):
             break
         if idx == START_IDX:
             continue
@@ -105,9 +105,7 @@ class PayloadVAE(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=PAD_IDX)
 
         # Encodeur GRU
-        self.encoder_gru = nn.GRU(
-            embed_dim, hidden_dim, batch_first=True, bidirectional=False
-        )
+        self.encoder_gru = nn.GRU(embed_dim, hidden_dim, batch_first=True, bidirectional=False)
 
         # Couches pour mu et logvar
         self.fc_mu = nn.Linear(hidden_dim, latent_dim)
@@ -115,9 +113,7 @@ class PayloadVAE(nn.Module):
 
         # Decodeur
         self.latent_to_hidden = nn.Linear(latent_dim, hidden_dim)
-        self.decoder_gru = nn.GRU(
-            embed_dim, hidden_dim, batch_first=True, bidirectional=False
-        )
+        self.decoder_gru = nn.GRU(embed_dim, hidden_dim, batch_first=True, bidirectional=False)
         self.output_layer = nn.Linear(hidden_dim, vocab_size)
 
     def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -152,9 +148,7 @@ class PayloadVAE(nn.Module):
         eps = torch.randn_like(std)
         return mu + eps * std
 
-    def decode(
-        self, z: torch.Tensor, target: torch.Tensor | None = None
-    ) -> torch.Tensor:
+    def decode(self, z: torch.Tensor, target: torch.Tensor | None = None) -> torch.Tensor:
         """Decode un vecteur latent en sequence de logits.
 
         Args:
@@ -174,9 +168,7 @@ class PayloadVAE(nn.Module):
         else:
             # Generation auto-regressive
             batch_size = z.shape[0]
-            input_token = torch.full(
-                (batch_size, 1), START_IDX, dtype=torch.long, device=z.device
-            )
+            input_token = torch.full((batch_size, 1), START_IDX, dtype=torch.long, device=z.device)
             outputs = []
 
             for _ in range(MAX_LEN):
@@ -192,9 +184,7 @@ class PayloadVAE(nn.Module):
 
         return logits
 
-    def forward(
-        self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass complet : encode → reparameterize → decode.
 
         Args:
@@ -229,7 +219,7 @@ def vae_loss(
         Tuple (total_loss, recon_loss, kl_loss).
     """
     # Reconstruction loss (cross-entropy)
-    batch_size, seq_len, vocab_size = logits.shape
+    _batch_size, _seq_len, vocab_size = logits.shape
     recon_loss = F.cross_entropy(
         logits.reshape(-1, vocab_size),
         targets.reshape(-1),

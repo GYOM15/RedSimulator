@@ -104,7 +104,11 @@ def train_vae(
         if (epoch + 1) % 5 == 0 or epoch == 0:
             logger.info(
                 "  Epoch %3d/%d | Loss: %.4f | Recon: %.4f | KL: %.4f",
-                epoch + 1, epochs, avg_loss, avg_recon, avg_kl,
+                epoch + 1,
+                epochs,
+                avg_loss,
+                avg_recon,
+                avg_kl,
             )
 
     # Sauvegarder le modele

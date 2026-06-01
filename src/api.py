@@ -16,20 +16,18 @@ Endpoints:
 import asyncio
 import ipaddress
 import json
-import sys
 import threading
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
-
-from dotenv import load_dotenv
+from sse_starlette.sse import EventSourceResponse
 
 from src.infra.config import settings
 from src.infra.exceptions import RedSimulatorError
@@ -44,6 +42,7 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Pipeline state
 # ---------------------------------------------------------------------------
+
 
 class _PipelineState:
     """Holds mutable state shared across API endpoints.
@@ -118,6 +117,7 @@ def _validate_target_url(url: str) -> str | None:
 # Lifespan
 # ---------------------------------------------------------------------------
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown logic."""
@@ -127,6 +127,7 @@ async def lifespan(app: FastAPI):
     # Shutdown: close Playwright cleanly
     try:
         from src.scanner.browser import shutdown
+
         shutdown()
     except Exception:
         pass
@@ -147,6 +148,7 @@ app.add_middleware(
 # SSE helpers
 # ---------------------------------------------------------------------------
 
+
 def _sse(event_type: str, data: dict):
     """Formate un evenement SSE."""
     return {"event": event_type, "data": json.dumps(data, default=str)}
@@ -166,6 +168,7 @@ def _safe_error_payload(phase: str, exc: Exception) -> dict:
 # SSE pipeline generator
 # ---------------------------------------------------------------------------
 
+
 async def _run_pipeline(target: str, use_fixtures: bool):
     """Generateur SSE avec delais pour affichage temps reel."""
     _state.is_fixtures = use_fixtures
@@ -178,10 +181,13 @@ async def _run_pipeline(target: str, use_fixtures: bool):
     try:
         if use_fixtures:
             from src.scanner.agent import ReconAgent
+
             scan_result = ReconAgent.from_fixture()
             yield _sse("scan_log", {"text": "Chargement de la fixture scan_result.json..."})
             await asyncio.sleep(0.2)
-            yield _sse("scan_log", {"text": f"Fixture chargee — {len(scan_result.endpoints)} endpoints"})
+            yield _sse(
+                "scan_log", {"text": f"Fixture chargee — {len(scan_result.endpoints)} endpoints"}
+            )
             await asyncio.sleep(0.2)
         else:
             from src.scanner.agent import ReconAgent
@@ -224,20 +230,20 @@ async def _run_pipeline(target: str, use_fixtures: bool):
 
             scan_result = scan_result_container[0]
 
-            # Envoyer le raisonnement restant
-            for step in agent.agent_messages:
-                if step not in []:  # Deja envoye via la queue
-                    pass  # Les agent_steps ont deja ete emis en temps reel
+            # Les agent_steps ont deja ete emis en temps reel via la queue
 
         # Resultats globaux
         scan_data = json.loads(scan_result.model_dump_json())
-        yield _sse("scan_result", {
-            "ports": len(scan_data["open_ports"]),
-            "endpoints": len(scan_data["endpoints"]),
-            "forms": len(scan_data["forms"]),
-            "technologies": scan_data["technologies"],
-            "missing_headers": scan_data["headers"]["missing_security_headers"],
-        })
+        yield _sse(
+            "scan_result",
+            {
+                "ports": len(scan_data["open_ports"]),
+                "endpoints": len(scan_data["endpoints"]),
+                "forms": len(scan_data["forms"]),
+                "technologies": scan_data["technologies"],
+                "missing_headers": scan_data["headers"]["missing_security_headers"],
+            },
+        )
         await asyncio.sleep(0.2)
 
         # Ports un par un
@@ -280,11 +286,13 @@ async def _run_pipeline(target: str, use_fixtures: bool):
         if use_fixtures:
             data = json.loads((fixtures_dir / "attack_plan.json").read_text())
             from src.models import AttackPlan
+
             attack_plan = AttackPlan.model_validate(data)
         else:
             from src.expert.engine import ExpertEngine
             from src.expert.facts import scan_result_to_facts
             from src.expert.rules import get_all_rules
+
             facts = scan_result_to_facts(scan_result)
             engine = ExpertEngine()
             engine.inject_facts(facts)
@@ -302,10 +310,13 @@ async def _run_pipeline(target: str, use_fixtures: bool):
             yield _sse("vector", v_data)
             await asyncio.sleep(0.5)
 
-        yield _sse("expert_result", {
-            "vectors": len(attack_plan.vectors),
-            "rules_fired": attack_plan.rules_fired,
-        })
+        yield _sse(
+            "expert_result",
+            {
+                "vectors": len(attack_plan.vectors),
+                "rules_fired": attack_plan.rules_fired,
+            },
+        )
         yield _sse("phase_done", {"phase": "expert"})
         await asyncio.sleep(0.5)
 
@@ -319,6 +330,7 @@ async def _run_pipeline(target: str, use_fixtures: bool):
 
     try:
         from src.models import PayloadResult
+
         if use_fixtures:
             data = json.loads((fixtures_dir / "payload_result.json").read_text())
             payload_result = PayloadResult.model_validate(data)
@@ -344,11 +356,13 @@ async def _run_pipeline(target: str, use_fixtures: bool):
 
     try:
         from src.models import AttackResult
+
         if use_fixtures:
             data = json.loads((fixtures_dir / "attack_result.json").read_text())
             attack_result = AttackResult.model_validate(data)
         else:
             from src.executor.runner import AttackExecutor
+
             executor = AttackExecutor(target)
             attack_result = executor.execute_all(attack_plan, payload_result)
 
@@ -357,10 +371,13 @@ async def _run_pipeline(target: str, use_fixtures: bool):
             yield _sse("attack", a_data)
             await asyncio.sleep(0.3)
 
-        yield _sse("executor_result", {
-            "total": attack_result.total_attempts,
-            "successful": attack_result.successful_attacks,
-        })
+        yield _sse(
+            "executor_result",
+            {
+                "total": attack_result.total_attempts,
+                "successful": attack_result.successful_attacks,
+            },
+        )
         yield _sse("phase_done", {"phase": "attacking"})
         await asyncio.sleep(0.5)
 
@@ -374,13 +391,14 @@ async def _run_pipeline(target: str, use_fixtures: bool):
 
     try:
         from src.reporter.report_generator import generate_report
+
         report = generate_report(scan_result, attack_plan, attack_result)
         _state.last_report = report
 
         # Rapport par petits chunks pour effet typewriter
         chunk_size = 40
         for i in range(0, len(report), chunk_size):
-            yield _sse("report_chunk", {"text": report[i:i + chunk_size]})
+            yield _sse("report_chunk", {"text": report[i : i + chunk_size]})
             await asyncio.sleep(0.02)
 
         yield _sse("phase_done", {"phase": "reporting"})
@@ -397,9 +415,10 @@ async def _run_pipeline(target: str, use_fixtures: bool):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {"status": "ok", "timestamp": datetime.now(UTC).isoformat()}
 
 
 @app.get("/api/scan/stream")
@@ -432,13 +451,14 @@ def chat(req: ChatRequest):
     if _state.is_fixtures:
         return {
             "answer": "Le chatbot RAG est disponible uniquement en mode live. "
-                      "En mode fixtures, les donnees sont simulees et le RAG n'est pas active. "
-                      "Lancez un scan reel pour utiliser le chatbot.",
+            "En mode fixtures, les donnees sont simulees et le RAG n'est pas active. "
+            "Lancez un scan reel pour utiliser le chatbot.",
             "mode": "fixtures",
         }
 
     try:
-        from src.reporter.rag_chatbot import index_report, ask_report
+        from src.reporter.rag_chatbot import ask_report, index_report
+
         index_report(_state.last_report)
         answer = ask_report(req.question)
         return {"answer": answer, "mode": "live"}

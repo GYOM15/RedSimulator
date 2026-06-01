@@ -10,8 +10,8 @@ from src.infra.config import settings
 from src.infra.logging import get_logger, setup_logging
 from src.models import AttackPlan, AttackResult, ScanResult
 
+from .rag_chatbot import ask_report, index_report
 from .report_generator import generate_report
-from .rag_chatbot import index_report, ask_report
 
 setup_logging(level=settings.log_level, fmt=settings.log_format)
 logger = get_logger(__name__)

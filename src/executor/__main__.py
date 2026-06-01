@@ -9,7 +9,7 @@ from pathlib import Path
 
 from src.infra.config import settings
 from src.infra.logging import get_logger, setup_logging
-from src.models import AttackPlan, AttackResult, PayloadResult
+from src.models import AttackPlan, PayloadResult
 
 from .runner import AttackExecutor
 

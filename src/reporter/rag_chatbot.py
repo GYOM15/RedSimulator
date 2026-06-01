@@ -7,9 +7,10 @@ TODO: Ameliorer le chunking, ajouter le streaming,
     integrer dans le dashboard Streamlit.
 """
 
+import contextlib
+
 from src.infra.config import settings
 from src.infra.decorators import logged
-from src.infra.exceptions import RAGError
 from src.infra.logging import get_logger
 
 logger = get_logger(__name__)
@@ -66,10 +67,8 @@ def index_report(report_text: str) -> int:
         client = chromadb.Client()
 
         # Supprimer la collection existante si elle existe
-        try:
+        with contextlib.suppress(Exception):
             client.delete_collection("report")
-        except Exception:
-            pass
 
         _collection = client.create_collection(
             name="report",
@@ -199,8 +198,9 @@ if __name__ == "__main__":
 
     setup_logging(level=settings.log_level, fmt=settings.log_format)
 
-    from .report_generator import generate_report
     from src.models import AttackPlan, AttackResult, ScanResult
+
+    from .report_generator import generate_report
 
     data_dir = Path(__file__).parent.parent.parent / "data" / "fixtures"
 

@@ -47,12 +47,12 @@ def _get_facts(memory: list[Fact], fact_type: str) -> list[Fact]:
 # SI formulaire avec champs + technologie SQL → attack_vector(sqli, HIGH)
 # ===========================================================================
 
+
 def _sqli_conditions(memory: list[Fact]) -> bool:
     """Conditions : un formulaire existe ET une techno SQL est detectee."""
     has_form = any(f.type == "form" for f in memory)
     has_sql_tech = any(
-        f.type == "technology" and "sql" in f.attributes.get("name", "").lower()
-        for f in memory
+        f.type == "technology" and "sql" in f.attributes.get("name", "").lower() for f in memory
     )
     return has_form and has_sql_tech
 
@@ -63,7 +63,7 @@ def _sqli_action(memory: list[Fact]) -> list[Fact]:
     forms = _get_facts(memory, "form")
 
     for i, form in enumerate(forms):
-        vector_id = f"VEC-{i+1:03d}"
+        vector_id = f"VEC-{i + 1:03d}"
         new_facts.append(
             Fact(
                 type="attack_vector",
@@ -104,12 +104,10 @@ SQL_INJECTION = Rule(
 # SI endpoint POST + missing CSP → attack_vector(xss, MEDIUM)
 # ===========================================================================
 
+
 def _xss_conditions(memory: list[Fact]) -> bool:
     """Conditions : endpoint POST existe ET header CSP manquant."""
-    has_post = any(
-        f.type == "endpoint" and f.attributes.get("method") == "POST"
-        for f in memory
-    )
+    has_post = any(f.type == "endpoint" and f.attributes.get("method") == "POST" for f in memory)
     has_missing_csp = _has_fact(memory, "missing_header", header="Content-Security-Policy")
     return has_post and has_missing_csp
 
@@ -118,8 +116,7 @@ def _xss_action(memory: list[Fact]) -> list[Fact]:
     """Action : creer un vecteur XSS pour les endpoints POST."""
     new_facts = []
     post_endpoints = [
-        f for f in memory
-        if f.type == "endpoint" and f.attributes.get("method") == "POST"
+        f for f in memory if f.type == "endpoint" and f.attributes.get("method") == "POST"
     ]
 
     # Trouver le prochain ID disponible
@@ -182,11 +179,11 @@ XSS_REFLECTED = Rule(
 # (Demontre le CHAINAGE : cette regle depend de SQL_INJECTION)
 # ===========================================================================
 
+
 def _sqli_critical_conditions(memory: list[Fact]) -> bool:
     """Conditions : un vecteur SQLi existe ET l'endpoint n'a pas d'auth."""
     sqli_vectors = [
-        f for f in memory
-        if f.type == "attack_vector" and f.attributes.get("attack_type") == "sqli"
+        f for f in memory if f.type == "attack_vector" and f.attributes.get("attack_type") == "sqli"
     ]
 
     if not sqli_vectors:
@@ -212,8 +209,7 @@ def _sqli_critical_action(memory: list[Fact]) -> list[Fact]:
     elevations = []
 
     sqli_vectors = [
-        f for f in memory
-        if f.type == "attack_vector" and f.attributes.get("attack_type") == "sqli"
+        f for f in memory if f.type == "attack_vector" and f.attributes.get("attack_type") == "sqli"
     ]
 
     for vec in sqli_vectors:
@@ -292,7 +288,22 @@ def get_all_rules() -> list[Rule]:
     que l'etat 'fired' persiste entre les executions.
     """
     return [
-        Rule(name=SQL_INJECTION.name, conditions=SQL_INJECTION.conditions, action=SQL_INJECTION.action, priority=SQL_INJECTION.priority),
-        Rule(name=XSS_REFLECTED.name, conditions=XSS_REFLECTED.conditions, action=XSS_REFLECTED.action, priority=XSS_REFLECTED.priority),
-        Rule(name=SQL_INJECTION_CRITICAL.name, conditions=SQL_INJECTION_CRITICAL.conditions, action=SQL_INJECTION_CRITICAL.action, priority=SQL_INJECTION_CRITICAL.priority),
+        Rule(
+            name=SQL_INJECTION.name,
+            conditions=SQL_INJECTION.conditions,
+            action=SQL_INJECTION.action,
+            priority=SQL_INJECTION.priority,
+        ),
+        Rule(
+            name=XSS_REFLECTED.name,
+            conditions=XSS_REFLECTED.conditions,
+            action=XSS_REFLECTED.action,
+            priority=XSS_REFLECTED.priority,
+        ),
+        Rule(
+            name=SQL_INJECTION_CRITICAL.name,
+            conditions=SQL_INJECTION_CRITICAL.conditions,
+            action=SQL_INJECTION_CRITICAL.action,
+            priority=SQL_INJECTION_CRITICAL.priority,
+        ),
     ]

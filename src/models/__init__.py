@@ -4,6 +4,9 @@ Ces modeles constituent le contrat d'interface entre les modules.
 Chaque module consomme et/ou produit des instances de ces modeles.
 """
 
+from .attack_plan import AttackPlan, AttackType, AttackVector, Severity
+from .attack_result import AttackResult, SingleAttackResult
+from .payload_result import GeneratedPayload, PayloadResult
 from .scan_result import (
     EndpointInfo,
     FormInfo,
@@ -11,22 +14,19 @@ from .scan_result import (
     PortInfo,
     ScanResult,
 )
-from .attack_plan import AttackPlan, AttackType, AttackVector, Severity
-from .payload_result import GeneratedPayload, PayloadResult
-from .attack_result import AttackResult, SingleAttackResult
 
 __all__ = [
-    "PortInfo",
-    "EndpointInfo",
-    "HeaderAnalysis",
-    "FormInfo",
-    "ScanResult",
-    "Severity",
+    "AttackPlan",
+    "AttackResult",
     "AttackType",
     "AttackVector",
-    "AttackPlan",
+    "EndpointInfo",
+    "FormInfo",
     "GeneratedPayload",
+    "HeaderAnalysis",
     "PayloadResult",
+    "PortInfo",
+    "ScanResult",
+    "Severity",
     "SingleAttackResult",
-    "AttackResult",
 ]

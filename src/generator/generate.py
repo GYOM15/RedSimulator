@@ -12,11 +12,11 @@ from src.infra.decorators import logged
 from src.infra.logging import get_logger
 
 from .vae_model import (
-    PayloadVAE,
-    encode_payload,
-    decode_indices,
     MAX_LEN,
     START_IDX,
+    PayloadVAE,
+    decode_indices,
+    encode_payload,
 )
 
 logger = get_logger(__name__)
@@ -47,7 +47,7 @@ def generate_variants(
     with torch.no_grad():
         # Encoder le payload de base
         encoded = torch.tensor([encode_payload(base_payload)], dtype=torch.long)
-        mu, logvar = model.encode(encoded)
+        mu, _logvar = model.encode(encoded)
 
         variants = []
         attempts = 0
@@ -75,18 +75,15 @@ def generate_variants(
                 next_token = torch.multinomial(probs, 1)
 
                 generated_indices.append(next_token.item())
-                input_token = next_token.unsqueeze(0) if next_token.dim() == 1 else next_token.view(1, 1)
+                input_token = (
+                    next_token.unsqueeze(0) if next_token.dim() == 1 else next_token.view(1, 1)
+                )
 
             # Decoder les indices en texte
             variant = decode_indices(generated_indices)
 
             # Filtrer : non vide, different du base, pas deja genere
-            if (
-                variant
-                and variant != base_payload
-                and variant not in variants
-                and len(variant) > 2
-            ):
+            if variant and variant != base_payload and variant not in variants and len(variant) > 2:
                 variants.append(variant)
 
     return variants

@@ -8,4 +8,4 @@ from .engine import ExpertEngine, Rule
 from .facts import Fact, scan_result_to_facts
 from .rules import get_all_rules
 
-__all__ = ["ExpertEngine", "Rule", "Fact", "scan_result_to_facts", "get_all_rules"]
+__all__ = ["ExpertEngine", "Fact", "Rule", "get_all_rules", "scan_result_to_facts"]

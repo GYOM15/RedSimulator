@@ -7,23 +7,33 @@ pour decider quels outils utiliser et comment interpreter les resultats.
 
 import json
 import time
+from collections.abc import Callable
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from pathlib import Path
-from typing import Callable
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 
-from src.models import ScanResult
-from src.infra.logging import get_logger
 from src.infra.config import settings
 from src.infra.decorators import logged, retry
-from src.infra.exceptions import ScanTimeoutError, LLMError
-from .tools import port_scan, endpoint_discovery, header_checker, form_analyzer, probe_endpoint, tech_detector, directory_bruteforce, dns_enum
-from .memory import save_scan, get_previous_context
-from .tech_detector import detect_technologies
+from src.infra.exceptions import LLMError, ScanTimeoutError
+from src.infra.logging import get_logger
+from src.models import ScanResult
+
 from .http_utils import clear_cache
+from .memory import get_previous_context, save_scan
+from .tech_detector import detect_technologies
+from .tools import (
+    directory_bruteforce,
+    dns_enum,
+    endpoint_discovery,
+    form_analyzer,
+    header_checker,
+    port_scan,
+    probe_endpoint,
+    tech_detector,
+)
 
 logger = get_logger(__name__)
 
@@ -96,6 +106,7 @@ REGLES ABSOLUES :
 
 
 # ---------- Conteneur pour capturer le resultat de l'agent ----------
+
 
 class _ScanResultHolder:
     """Conteneur mutable pour capturer le ScanResult depuis le tool submit."""
@@ -185,7 +196,10 @@ class ReconAgent:
         elif tool_name == "endpoint_discovery" and isinstance(data, list):
             for ep in data:
                 self._emit("endpoint", ep)
-            self._emit("scan_result", {"endpoints": len(data), "ports": 0, "forms": 0, "missing_headers": []})
+            self._emit(
+                "scan_result",
+                {"endpoints": len(data), "ports": 0, "forms": 0, "missing_headers": []},
+            )
         elif tool_name == "header_checker" and isinstance(data, dict):
             for h in data.get("missing_security_headers", []):
                 self._emit("missing_header", {"name": h})
@@ -220,7 +234,10 @@ class ReconAgent:
             raise ScanTimeoutError("Timeout global du scan")
 
         clear_cache()  # Vider le cache entre les scans
-        self._emit("scan_log", {"text": f"Demarrage de la reconnaissance sur {self.target_url} (max {SCAN_TIMEOUT}s)"})
+        self._emit(
+            "scan_log",
+            {"text": f"Demarrage de la reconnaissance sur {self.target_url} (max {SCAN_TIMEOUT}s)"},
+        )
 
         # Installer le timeout (Unix seulement)
         old_handler = None
@@ -235,10 +252,14 @@ class ReconAgent:
             try:
                 result = self._run_react_agent()
                 if result:
-                    self._emit("scan_log", {"text": "Agent termine — enrichissement des resultats..."})
+                    self._emit(
+                        "scan_log", {"text": "Agent termine — enrichissement des resultats..."}
+                    )
                     scan = self._enrich_agent_result(result)
             except ScanTimeoutError:
-                self._emit("scan_log", {"text": f"Timeout {SCAN_TIMEOUT}s atteint — passage au fallback"})
+                self._emit(
+                    "scan_log", {"text": f"Timeout {SCAN_TIMEOUT}s atteint — passage au fallback"}
+                )
             except Exception as e:
                 self._emit("scan_log", {"text": f"Agent LLM indisponible: {e}"})
 
@@ -248,15 +269,27 @@ class ReconAgent:
 
             # Calculer le score de risque
             risk = scan.compute_risk_score()
-            self._emit("scan_log", {"text": f"Score de risque: {risk['score']}/100 ({risk['level']}) — {len(risk['findings'])} constat(s)"})
+            self._emit(
+                "scan_log",
+                {
+                    "text": f"Score de risque: {risk['score']}/100 ({risk['level']}) — {len(risk['findings'])} constat(s)"
+                },
+            )
 
             # Sauvegarder dans la memoire
             changes = save_scan(scan)
             if changes.get("first_scan"):
-                self._emit("scan_log", {"text": "Premier scan sur cette cible — historique initialise."})
+                self._emit(
+                    "scan_log", {"text": "Premier scan sur cette cible — historique initialise."}
+                )
             elif changes.get("changes"):
                 for c in changes["changes"]:
-                    self._emit("scan_log", {"text": f"Changement detecte: {c['type']} — {c.get('details', c.get('count', ''))}"})
+                    self._emit(
+                        "scan_log",
+                        {
+                            "text": f"Changement detecte: {c['type']} — {c.get('details', c.get('count', ''))}"
+                        },
+                    )
 
             return scan
         finally:
@@ -268,6 +301,7 @@ class ReconAgent:
             except (AttributeError, ValueError):
                 pass
             from .browser import shutdown
+
             shutdown()
 
     @retry(max_attempts=2, exceptions=(LLMError,))
@@ -298,21 +332,29 @@ class ReconAgent:
         # Injecter le contexte memoire des scans precedents
         memory_ctx = get_previous_context(self.target_url)
         prompt = SYSTEM_PROMPT.format(
-            memory_context=memory_ctx if memory_ctx else "Premier scan sur cette cible — aucun historique."
+            memory_context=memory_ctx
+            if memory_ctx
+            else "Premier scan sur cette cible — aucun historique."
         )
 
         messages = [
             {"role": "system", "content": prompt},
-            {"role": "user", "content": f"Scanne la cible {self.target_url} et soumets un rapport complet."},
+            {
+                "role": "user",
+                "content": f"Scanne la cible {self.target_url} et soumets un rapport complet.",
+            },
         ]
 
         for iteration in range(max_iterations):
-            self._emit("scan_log", {"text": f"Iteration {iteration + 1}/{max_iterations} — l'agent raisonne..."})
+            self._emit(
+                "scan_log",
+                {"text": f"Iteration {iteration + 1}/{max_iterations} — l'agent raisonne..."},
+            )
 
             # Streamer les etapes de l'agent en temps reel
             steps = []
             for event in agent.stream({"messages": messages}, stream_mode="updates"):
-                for node_name, node_data in event.items():
+                for _node_name, node_data in event.items():
                     for msg in node_data.get("messages", []):
                         msg_type = type(msg).__name__
                         if msg_type == "AIMessage":
@@ -321,7 +363,8 @@ class ReconAgent:
                             # Extraire le texte si content est une liste d'objets
                             if isinstance(raw_content, list):
                                 text_parts = [
-                                    block.get("text", "") for block in raw_content
+                                    block.get("text", "")
+                                    for block in raw_content
                                     if isinstance(block, dict) and block.get("type") == "text"
                                 ]
                                 content = " ".join(text_parts).strip()
@@ -333,7 +376,11 @@ class ReconAgent:
                                 self._emit("agent_step", step)
                                 time.sleep(0.3)
                             for tc in tool_calls:
-                                step = {"type": "act", "tool": tc.get("name", ""), "args": tc.get("args", {})}
+                                step = {
+                                    "type": "act",
+                                    "tool": tc.get("name", ""),
+                                    "args": tc.get("args", {}),
+                                }
                                 steps.append(step)
                                 self._emit("agent_step", step)
                                 time.sleep(0.2)
@@ -360,13 +407,20 @@ class ReconAgent:
                     return self.scan_result
 
                 if iteration < max_iterations - 1:
-                    self._emit("scan_log", {"text": f"Rapport incomplet — relance: {feedback[:100]}"})
+                    self._emit(
+                        "scan_log", {"text": f"Rapport incomplet — relance: {feedback[:100]}"}
+                    )
                     self._holder.result = None
                     messages = [
                         {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": f"Scanne la cible {self.target_url}. Ton rapport precedent etait incomplet. {feedback} Corrige et resoumets."},
+                        {
+                            "role": "user",
+                            "content": f"Scanne la cible {self.target_url}. Ton rapport precedent etait incomplet. {feedback} Corrige et resoumets.",
+                        },
                     ]
-                    self.agent_messages.append({"type": "think", "content": f"Auto-evaluation: {feedback}"})
+                    self.agent_messages.append(
+                        {"type": "think", "content": f"Auto-evaluation: {feedback}"}
+                    )
                     continue
                 else:
                     self._emit("scan_log", {"text": "Derniere iteration — rapport accepte"})
@@ -399,11 +453,15 @@ class ReconAgent:
         if not result.forms:
             # Verifier s'il y a des endpoints qui pourraient avoir des formulaires
             has_pages = any(
-                ep.status_code == 200 and not ep.path.startswith("/api/") and not ep.path.startswith("/rest/")
+                ep.status_code == 200
+                and not ep.path.startswith("/api/")
+                and not ep.path.startswith("/rest/")
                 for ep in result.endpoints
             )
             if has_pages:
-                issues.append("Aucun formulaire trouve mais des pages existent. Utilise form_analyzer sur les pages qui semblent interactives.")
+                issues.append(
+                    "Aucun formulaire trouve mais des pages existent. Utilise form_analyzer sur les pages qui semblent interactives."
+                )
 
         if not issues:
             return None
@@ -444,6 +502,7 @@ class ReconAgent:
             ports = self._scan_ports()
             if ports:
                 from src.models import PortInfo
+
                 result.open_ports = [PortInfo(**p) if isinstance(p, dict) else p for p in ports]
                 enriched = True
 
@@ -465,7 +524,8 @@ class ReconAgent:
                 tool_calls = getattr(msg, "tool_calls", [])
                 if isinstance(raw_content, list):
                     content = " ".join(
-                        b.get("text", "") for b in raw_content
+                        b.get("text", "")
+                        for b in raw_content
                         if isinstance(b, dict) and b.get("type") == "text"
                     ).strip()
                 else:
@@ -473,21 +533,25 @@ class ReconAgent:
                 if content:
                     reasoning.append({"type": "think", "content": content})
                 for tc in tool_calls:
-                    reasoning.append({
-                        "type": "act",
-                        "tool": tc.get("name", ""),
-                        "args": tc.get("args", {}),
-                    })
+                    reasoning.append(
+                        {
+                            "type": "act",
+                            "tool": tc.get("name", ""),
+                            "args": tc.get("args", {}),
+                        }
+                    )
             elif msg_type == "ToolMessage":
                 content = getattr(msg, "content", "")
                 name = getattr(msg, "name", "")
                 # Tronquer les longues reponses pour le dashboard
                 preview = content[:500] + "..." if len(content) > 500 else content
-                reasoning.append({
-                    "type": "observe",
-                    "tool": name,
-                    "content": preview,
-                })
+                reasoning.append(
+                    {
+                        "type": "observe",
+                        "tool": name,
+                        "content": preview,
+                    }
+                )
         return reasoning
 
     def _fallback_sequential(self) -> ScanResult:
@@ -510,14 +574,20 @@ class ReconAgent:
         for h in headers.get("missing_security_headers", []):
             self._emit("missing_header", {"name": h})
             time.sleep(0.05)
-        self._emit("scan_log", {"text": f"{len(headers.get('missing_security_headers', []))} headers manquants"})
+        self._emit(
+            "scan_log",
+            {"text": f"{len(headers.get('missing_security_headers', []))} headers manquants"},
+        )
 
         self._emit("scan_log", {"text": "Detection des technologies..."})
         technologies = self._detect_technologies()
         for tech in technologies:
             self._emit("technology", {"name": tech})
             time.sleep(0.1)
-        self._emit("scan_log", {"text": f"Technologies: {', '.join(technologies[:5]) if technologies else 'aucune'}"})
+        self._emit(
+            "scan_log",
+            {"text": f"Technologies: {', '.join(technologies[:5]) if technologies else 'aucune'}"},
+        )
 
         self._emit("scan_log", {"text": "Analyse des formulaires..."})
         forms = self._analyze_forms(endpoints)
@@ -579,9 +649,23 @@ class ReconAgent:
         analyzed = set()
 
         # Patterns d'endpoints susceptibles d'avoir des formulaires
-        form_patterns = ("login", "register", "contact", "forgot", "reset",
-                         "signup", "signin", "complain", "feedback", "search",
-                         "payment", "checkout", "basket", "chatbot", "admin")
+        form_patterns = (
+            "login",
+            "register",
+            "contact",
+            "forgot",
+            "reset",
+            "signup",
+            "signin",
+            "complain",
+            "feedback",
+            "search",
+            "payment",
+            "checkout",
+            "basket",
+            "chatbot",
+            "admin",
+        )
 
         for ep in endpoints:
             path = ep.get("path", "")
@@ -599,24 +683,25 @@ class ReconAgent:
             is_angular = "#/" in path
             is_form_like = any(p in path.lower() for p in form_patterns)
 
-            if is_angular or is_form_like:
-                if path not in analyzed:
-                    analyzed.add(path)
-                    result = _safe_invoke(
-                        form_analyzer,
-                        {"target": self.target_url, "endpoint": path},
-                    )
-                    for form in result:
-                        if form.get("fields"):
-                            form["endpoint"] = path
-                            forms.append(form)
+            if (is_angular or is_form_like) and path not in analyzed:
+                analyzed.add(path)
+                result = _safe_invoke(
+                    form_analyzer,
+                    {"target": self.target_url, "endpoint": path},
+                )
+                for form in result:
+                    if form.get("fields"):
+                        form["endpoint"] = path
+                        forms.append(form)
 
         return forms
 
     @staticmethod
     def from_fixture() -> ScanResult:
         """Charge le ScanResult depuis la fixture JSON."""
-        fixture_path = Path(__file__).parent.parent.parent / "data" / "fixtures" / "scan_result.json"
+        fixture_path = (
+            Path(__file__).parent.parent.parent / "data" / "fixtures" / "scan_result.json"
+        )
         data = json.loads(fixture_path.read_text())
         result = ScanResult.model_validate(data)
         logger.info("Fixture chargee: %s, %d endpoints", result.target, len(result.endpoints))
@@ -625,7 +710,9 @@ class ReconAgent:
 
 if __name__ == "__main__":
     import sys
+
     from src.infra.logging import setup_logging
+
     setup_logging(level=settings.log_level, fmt=settings.log_format)
 
     if "--fixture" in sys.argv or "--fixtures" in sys.argv:
@@ -643,11 +730,11 @@ if __name__ == "__main__":
             logger.info("=" * 60)
             for step in agent.agent_messages:
                 if step["type"] == "think":
-                    logger.info("  THINK: %s", step['content'][:200])
+                    logger.info("  THINK: %s", step["content"][:200])
                 elif step["type"] == "act":
-                    logger.info("  ACT:   %s(%s)", step['tool'], step['args'])
+                    logger.info("  ACT:   %s(%s)", step["tool"], step["args"])
                 elif step["type"] == "observe":
-                    logger.info("  OBS:   %s -> %s", step['tool'], step['content'][:100])
+                    logger.info("  OBS:   %s -> %s", step["tool"], step["content"][:100])
 
     logger.info("=" * 60)
     logger.info("Resultat du scan:")

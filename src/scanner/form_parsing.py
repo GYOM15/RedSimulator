@@ -10,6 +10,7 @@ import re
 from bs4 import BeautifulSoup
 
 from src.infra.logging import get_logger
+
 from .http_utils import safe_request
 
 logger = get_logger(__name__)
@@ -29,7 +30,7 @@ def analyze_static_forms(url: str) -> list:
     Returns:
         Liste de formulaires avec leurs champs.
     """
-    resp, error = safe_request(url)
+    resp, _error = safe_request(url)
     if resp is None or resp.status_code != 200:
         return []
 
@@ -40,12 +41,14 @@ def analyze_static_forms(url: str) -> list:
         fields = _extract_fields(form, ["input", "select", "textarea"])
 
         if fields:
-            forms_info.append({
-                "action": form.get("action", ""),
-                "method": form.get("method", "GET"),
-                "fields": fields,
-                "source": "static",
-            })
+            forms_info.append(
+                {
+                    "action": form.get("action", ""),
+                    "method": form.get("method", "GET"),
+                    "fields": fields,
+                    "source": "static",
+                }
+            )
 
     return forms_info
 
@@ -62,7 +65,7 @@ def analyze_dynamic_forms(url: str) -> list:
     Returns:
         Liste de formulaires avec leurs champs.
     """
-    from .browser import new_page, close_page
+    from .browser import close_page, new_page
 
     forms_info = []
     page = new_page(url)
@@ -95,7 +98,7 @@ def analyze_angular_forms(target: str) -> list:
     Returns:
         Liste de formulaires avec leurs champs.
     """
-    from .browser import new_page, close_page
+    from .browser import close_page, new_page
 
     # Routes Angular courantes a tester
     angular_routes = [
@@ -131,7 +134,7 @@ def analyze_angular_forms(target: str) -> list:
                 form["endpoint"] = route
                 if form.get("fields"):
                     all_forms.append(form)
-                    logger.debug("%s -> %d champs", route, len(form['fields']))
+                    logger.debug("%s -> %d champs", route, len(form["fields"]))
 
         except Exception:
             pass
@@ -144,16 +147,19 @@ def analyze_angular_forms(target: str) -> list:
 
 # ---------- Helpers prives ----------
 
+
 def _extract_fields(container, selectors: list[str]) -> list[dict]:
     """Extrait les champs de formulaire depuis un conteneur BeautifulSoup."""
     fields = []
     for input_tag in container.find_all(selectors):
         field_name = input_tag.get("name")
         if field_name:
-            fields.append({
-                "name": field_name,
-                "type": input_tag.get("type", "text"),
-            })
+            fields.append(
+                {
+                    "name": field_name,
+                    "type": input_tag.get("type", "text"),
+                }
+            )
     return fields
 
 
@@ -169,12 +175,14 @@ def _extract_rendered_forms(page) -> list[dict]:
                 fields.append({"name": name, "type": input_type})
 
         if fields:
-            forms.append({
-                "action": form_el.get_attribute("action") or "",
-                "method": form_el.get_attribute("method") or "POST",
-                "fields": fields,
-                "source": "dynamic",
-            })
+            forms.append(
+                {
+                    "action": form_el.get_attribute("action") or "",
+                    "method": form_el.get_attribute("method") or "POST",
+                    "fields": fields,
+                    "source": "dynamic",
+                }
+            )
 
     return forms
 
@@ -191,9 +199,11 @@ def _extract_orphan_inputs(page, url: str) -> dict | None:
     }""")
 
     # Filtrer les champs auto-generes et les searchbars
-    filtered = [f for f in orphan_inputs
-                if f["name"] not in IGNORED_FIELD_NAMES
-                and not IGNORED_FIELD_PATTERN.match(f["name"])]
+    filtered = [
+        f
+        for f in orphan_inputs
+        if f["name"] not in IGNORED_FIELD_NAMES and not IGNORED_FIELD_PATTERN.match(f["name"])
+    ]
 
     if filtered:
         return {
