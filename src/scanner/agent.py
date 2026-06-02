@@ -25,6 +25,7 @@ from .http_utils import clear_cache
 from .memory import get_previous_context, save_scan
 from .tech_detector import detect_technologies
 from .tools import (
+    api_spec_scanner,
     directory_bruteforce,
     dns_enum,
     endpoint_discovery,
@@ -50,6 +51,7 @@ PHASE 1 — Appelle ces outils dans un seul message (ils s'executent en parallel
 - header_checker(target)
 - tech_detector(target)
 - directory_bruteforce(target, category="sensitive")
+- api_spec_scanner(target) — Decouvre les specs OpenAPI/Swagger/GraphQL
 - dns_enum(target) — SEULEMENT si la cible est un domaine reel (pas localhost/IP)
 
 PHASE 2 — Base tes decisions sur les RESULTATS de la Phase 1 :
@@ -72,6 +74,9 @@ OUTILS :
 - tech_detector(target) — Technologies et versions.
 - directory_bruteforce(target, category) — Custom: "common", "sensitive", "nodejs", "backup".
   SecLists: "seclists/web-common" (4700), "seclists/web-directories" (30000), "seclists/api-endpoints" (285).
+- api_spec_scanner(target) — Decouvre les specs OpenAPI/Swagger/GraphQL.
+  Sonde /swagger.json, /openapi.json, /graphql, etc. et parse les endpoints, parametres et auth.
+  Utile pour completer endpoint_discovery avec les endpoints documentes.
 - dns_enum(target) — Enumere les sous-domaines (subfinder + crt.sh + bruteforce DNS).
   NE PAS appeler sur localhost ou une IP.
 - probe_endpoint(target, path, method, body) — Teste un endpoint avec methode/body custom.
@@ -172,6 +177,7 @@ class ReconAgent:
             probe_endpoint,
             tech_detector,
             directory_bruteforce,
+            api_spec_scanner,
             dns_enum,
             _build_submit_tool(self._holder),
         ]

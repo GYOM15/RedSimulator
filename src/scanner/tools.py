@@ -1188,6 +1188,100 @@ def _resolve_subdomains(subdomains: list) -> list:
     return sorted(results, key=lambda r: r["subdomain"])
 
 
+@tool
+@timed
+def api_spec_scanner(target: str) -> str:
+    """Decouvre et parse les specifications API (OpenAPI, Swagger, GraphQL).
+
+    Sonde les chemins courants sur la cible pour trouver des specs API
+    (/swagger.json, /openapi.json, /graphql, etc.) et les parse pour
+    extraire les endpoints, parametres et schemas d'authentification.
+
+    Utile pour :
+    - Decouvrir tous les endpoints documentes d'une API REST
+    - Identifier les schemas d'authentification (Bearer, API Key, OAuth2)
+    - Trouver les endpoints GraphQL et leurs operations
+    - Completer la decouverte manuelle avec les infos de la documentation
+
+    Args:
+        target: URL de base de la cible (ex: http://localhost:3000)
+
+    Returns:
+        JSON avec les specs decouvertes, endpoints, parametres et auth.
+    """
+    from .api_specs import discover_api_specs
+
+    logger.info("Recherche de specifications API sur %s...", target)
+
+    specs = discover_api_specs(target)
+
+    if not specs:
+        return json.dumps(
+            {
+                "specs_found": 0,
+                "summary": "Aucune specification API decouverte (OpenAPI, Swagger, GraphQL).",
+            }
+        )
+
+    result = {
+        "specs_found": len(specs),
+        "specs": [],
+    }
+
+    total_endpoints = 0
+    for spec in specs:
+        spec_info = {
+            "format": spec.format,
+            "version": spec.version,
+            "title": spec.title,
+            "base_url": spec.base_url,
+            "auth_schemes": spec.auth_schemes,
+            "endpoint_count": len(spec.endpoints),
+            "endpoints": [],
+        }
+
+        for ep in spec.endpoints:
+            ep_info = {
+                "path": ep.path,
+                "method": ep.method,
+                "description": ep.description,
+                "auth": ep.auth_schemes,
+                "tags": ep.tags,
+                "parameters": [
+                    {
+                        "name": p.name,
+                        "in": p.location,
+                        "type": p.param_type,
+                        "required": p.required,
+                    }
+                    for p in ep.parameters
+                ],
+            }
+            spec_info["endpoints"].append(ep_info)
+            total_endpoints += 1
+
+        result["specs"].append(spec_info)
+
+    # Resume textuel pour l'agent
+    lines = [f"{len(specs)} specification(s) API decouverte(s) :"]
+    for spec in specs:
+        lines.append(f"  [{spec.format}] {spec.title} — {len(spec.endpoints)} endpoints")
+        if spec.auth_schemes:
+            auth_list = ", ".join(f"{k}: {v}" for k, v in spec.auth_schemes.items())
+            lines.append(f"    Auth: {auth_list}")
+        for ep in spec.endpoints[:15]:  # Limiter a 15 par spec pour le resume
+            params = ", ".join(p.name for p in ep.parameters[:5])
+            auth_str = f" [auth: {', '.join(ep.auth_schemes)}]" if ep.auth_schemes else ""
+            lines.append(f"    {ep.method} {ep.path} ({params}){auth_str}")
+        if len(spec.endpoints) > 15:
+            lines.append(f"    ... et {len(spec.endpoints) - 15} autres endpoints")
+
+    result["summary"] = "\n".join(lines)
+
+    logger.info("%d endpoint(s) extraits depuis %d spec(s) API", total_endpoints, len(specs))
+    return json.dumps(result, indent=2)
+
+
 if __name__ == "__main__":
     from src.infra.logging import setup_logging
 
@@ -1221,3 +1315,6 @@ if __name__ == "__main__":
             {"target": target, "path": "/rest/user/login", "method": "POST", "body": "{}"}
         )
     )
+
+    logger.info("--- API Spec Scanner ---")
+    logger.info(api_spec_scanner.invoke({"target": target}))

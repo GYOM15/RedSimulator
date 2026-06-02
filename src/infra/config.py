@@ -119,6 +119,14 @@ class Settings(BaseSettings):
         default=5,
         description="Default number of payload variants to generate per base payload.",
     )
+    payload_db_path: str = Field(
+        default="data/payloads",
+        description="Path to payload database directory.",
+    )
+    max_payloads_per_vector: int = Field(
+        default=20,
+        description="Max payloads loaded per attack vector.",
+    )
 
     # ------------------------------------------------------------------
     # Executor settings

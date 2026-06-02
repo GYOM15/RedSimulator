@@ -6,5 +6,6 @@ n'est pas disponible.
 """
 
 from .generate import generate_for_plan, generate_variants
+from .payload_db import PayloadDatabase, payload_db
 
-__all__ = ["generate_for_plan", "generate_variants"]
+__all__ = ["PayloadDatabase", "generate_for_plan", "generate_variants", "payload_db"]

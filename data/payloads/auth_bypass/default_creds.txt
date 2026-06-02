@@ -1,0 +1,37 @@
+# Auth Bypass - Default Credentials
+# Common default username:password pairs for web applications
+# Format: username:password
+admin:admin
+admin:password
+admin:admin123
+admin:123456
+admin:12345678
+admin:1234
+admin:pass
+admin:root
+admin:toor
+admin:changeme
+admin:default
+admin:letmein
+admin:welcome
+administrator:administrator
+administrator:password
+administrator:admin
+root:root
+root:password
+root:toor
+root:admin
+root:123456
+test:test
+test:password
+test:123456
+user:user
+user:password
+user:123456
+guest:guest
+guest:password
+demo:demo
+demo:password
+operator:operator
+manager:manager
+support:support

@@ -1,0 +1,31 @@
+# Open Redirect - URL Payloads
+# Payloads to test for open redirect vulnerabilities
+# Various URL schemes and bypass techniques
+https://evil.com
+http://evil.com
+//evil.com
+\/\/evil.com
+/\/evil.com
+/\evil.com
+//evil.com/
+\\evil.com
+/\\evil.com
+https://evil.com/%2f..
+//evil.com/%2f..
+///evil.com
+////evil.com
+https:evil.com
+http:evil.com
+https://evil.com@trusted.com
+https://trusted.com@evil.com
+https://evil.com#trusted.com
+https://evil.com?trusted.com
+https://trusted.com.evil.com
+//evil.com%2f%2ftrusted.com
+//%0d%0aevil.com
+/%09/evil.com
+/%5cevil.com
+/evil.com
+.evil.com
+javascript:alert(1)
+data:text/html,<script>alert(1)</script>

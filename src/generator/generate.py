@@ -15,6 +15,7 @@ from src.models import AttackPlan, GeneratedPayload, PayloadResult
 
 from .llm_mutator import mutate_with_llm
 from .offline_mutator import mutate_payload
+from .payload_db import payload_db
 
 logger = get_logger(__name__)
 
@@ -96,7 +97,20 @@ def generate_for_plan(attack_plan: AttackPlan) -> PayloadResult:
     for vector in attack_plan.vectors:
         logger.info("--- Vecteur %s (%s) ---", vector.id, vector.attack_type.value)
 
-        for base_payload in vector.base_payloads:
+        # Augment base payloads with database payloads
+        db_payloads = payload_db.get(
+            vector.attack_type.value,
+            limit=settings.max_payloads_per_vector,
+        )
+        all_base = list(dict.fromkeys(vector.base_payloads + db_payloads))
+        logger.info(
+            "  Merged %d base + %d db payloads -> %d unique",
+            len(vector.base_payloads),
+            len(db_payloads),
+            len(all_base),
+        )
+
+        for base_payload in all_base:
             logger.info("  Base: %s", base_payload)
             variants = generate_variants(
                 base_payload=base_payload,

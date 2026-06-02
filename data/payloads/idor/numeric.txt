@@ -1,0 +1,28 @@
+# IDOR - Numeric ID Manipulation
+# Payloads for Insecure Direct Object Reference via numeric IDs
+# Replace target parameter values with these
+0
+1
+2
+3
+-1
+99
+100
+999
+1000
+9999
+2147483647
+-2147483648
+01
+001
+0001
+1.0
+1e0
+1+0
+2-1
+0x1
+00
+000
+1%00
+1%0a
+1%0d

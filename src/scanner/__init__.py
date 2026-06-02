@@ -5,16 +5,18 @@ Il adapte sa strategie selon ce qu'il decouvre sur la cible.
 
 Structure du module :
 - agent.py        : Orchestration de l'agent ReAct + fallback sequentiel
-- tools.py        : 8 outils (@tool) pour l'agent
+- tools.py        : 9 outils (@tool) pour l'agent
 - http_utils.py   : Requetes HTTP paralleles + cache + formatage d'erreurs
 - crawlers.py     : Decouverte de chemins (HTML + JS + Playwright conditionnel)
 - form_parsing.py : Analyse de formulaires (statique + dynamique)
 - tech_detector.py: Detection des technologies et versions
 - memory.py       : Memoire persistante entre les scans
+- api_specs/      : Decouverte et parsing de specs OpenAPI/Swagger/GraphQL
 """
 
 from .agent import ReconAgent
 from .tools import (
+    api_spec_scanner,
     directory_bruteforce,
     dns_enum,
     endpoint_discovery,
@@ -27,6 +29,7 @@ from .tools import (
 
 __all__ = [
     "ReconAgent",
+    "api_spec_scanner",
     "directory_bruteforce",
     "dns_enum",
     "endpoint_discovery",

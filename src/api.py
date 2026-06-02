@@ -57,9 +57,9 @@ class _PipelineState:
         self.last_report: str = ""
         self.is_fixtures: bool = False
         # Keep pipeline results for knowledge-graph construction in the RAG chatbot
-        self.last_scan = None       # ScanResult | None
-        self.last_plan = None       # AttackPlan | None
-        self.last_results = None    # AttackResult | None
+        self.last_scan = None  # ScanResult | None
+        self.last_plan = None  # AttackPlan | None
+        self.last_results = None  # AttackResult | None
 
 
 _state = _PipelineState()
