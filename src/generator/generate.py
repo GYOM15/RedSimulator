@@ -3,6 +3,10 @@
 Tente d'abord la generation via LLM (Claude API), puis se rabat
 sur les mutations deterministes hors-ligne en cas d'echec ou
 d'absence de cle API.
+
+When a ``ScanResult`` is provided, the generator uses the contextual
+intelligence system to select payloads optimized for the target's
+technology stack, WAF, and database engine.
 """
 
 from __future__ import annotations
@@ -11,7 +15,7 @@ from src.infra.config import settings
 from src.infra.decorators import logged, timed
 from src.infra.exceptions import LLMError
 from src.infra.logging import get_logger
-from src.models import AttackPlan, GeneratedPayload, PayloadResult
+from src.models import AttackPlan, GeneratedPayload, PayloadResult, ScanResult
 
 from .llm_mutator import mutate_with_llm
 from .offline_mutator import mutate_payload
@@ -76,14 +80,23 @@ def generate_variants(
 
 @logged
 @timed
-def generate_for_plan(attack_plan: AttackPlan) -> PayloadResult:
+def generate_for_plan(
+    attack_plan: AttackPlan,
+    scan_result: ScanResult | None = None,
+) -> PayloadResult:
     """Genere des variantes de payloads pour un plan d'attaque complet.
 
     Parcourt chaque vecteur du plan et genere des variantes pour
     chacun de ses payloads de base.
 
+    When a ``scan_result`` is provided, the contextual intelligence system
+    selects payloads optimized for the target's detected technologies,
+    WAF, and database engine. Payload explanations are passed to the LLM
+    mutator for smarter variant generation.
+
     Args:
         attack_plan: Plan d'attaque contenant les vecteurs et payloads de base.
+        scan_result: Optional scan result for context-aware payload selection.
 
     Returns:
         PayloadResult contenant tous les payloads generes.
@@ -92,26 +105,72 @@ def generate_for_plan(attack_plan: AttackPlan) -> PayloadResult:
     logger.info("Generation de variantes de payloads")
     logger.info("=" * 60)
 
+    # Extract technologies and raw headers from scan result if available
+    technologies: list[str] = []
+    scan_headers: dict | None = None
+    if scan_result is not None:
+        technologies = scan_result.technologies
+        # Build a raw header dict from the HeaderAnalysis model for WAF detection
+        scan_headers = {}
+        if scan_result.headers.server_info_leaked:
+            scan_headers["server"] = "leaked"
+        logger.info(
+            "Scan context: %d technologies detected, headers available=%s",
+            len(technologies),
+            scan_headers is not None,
+        )
+
     payloads: list[GeneratedPayload] = []
 
     for vector in attack_plan.vectors:
         logger.info("--- Vecteur %s (%s) ---", vector.id, vector.attack_type.value)
 
-        # Augment base payloads with database payloads
-        db_payloads = payload_db.get(
-            vector.attack_type.value,
-            limit=settings.max_payloads_per_vector,
-        )
-        all_base = list(dict.fromkeys(vector.base_payloads + db_payloads))
+        # Use smart selector when scan context is available, otherwise fall back
+        if technologies or scan_headers:
+            intel_payloads = payload_db.select_for_target(
+                attack_type=vector.attack_type.value,
+                technologies=technologies,
+                headers=scan_headers,
+                limit=settings.max_payloads_per_vector,
+            )
+            db_payload_texts = [ip.text for ip in intel_payloads]
+
+            # Build explanation context for LLM mutation
+            explanation_context: dict[str, str] = {}
+            for ip in intel_payloads:
+                if ip.explanation:
+                    explanation_context[ip.text] = ip.explanation
+
+            logger.info(
+                "  Smart selector: %d payloads selected (%d with explanations)",
+                len(db_payload_texts),
+                len(explanation_context),
+            )
+        else:
+            # Legacy path: get payload texts without intelligence
+            intel_payloads_legacy = payload_db.get(
+                vector.attack_type.value,
+                limit=settings.max_payloads_per_vector,
+            )
+            db_payload_texts = [ip.text for ip in intel_payloads_legacy]
+            explanation_context = {}
+
+        all_base = list(dict.fromkeys(vector.base_payloads + db_payload_texts))
         logger.info(
             "  Merged %d base + %d db payloads -> %d unique",
             len(vector.base_payloads),
-            len(db_payloads),
+            len(db_payload_texts),
             len(all_base),
         )
 
         for base_payload in all_base:
             logger.info("  Base: %s", base_payload)
+
+            # Pass explanation to LLM mutator for smarter variants
+            explanation = explanation_context.get(base_payload, "")
+            if explanation:
+                logger.debug("  Explanation context: %s", explanation[:100])
+
             variants = generate_variants(
                 base_payload=base_payload,
                 attack_type=vector.attack_type.value,

@@ -3,6 +3,9 @@
 Auto-discovers attack handlers from :mod:`src.executor.attacks` and
 dispatches each vector to the matching handler.  The public interface
 (``AttackExecutor`` with ``execute_all``) is unchanged.
+
+After each attack result, the executor records feedback to the payload
+intelligence system for cross-session learning.
 """
 
 from __future__ import annotations
@@ -11,6 +14,7 @@ import json
 import time
 from pathlib import Path
 
+from src.generator.payload_db import payload_db
 from src.infra.config import settings
 from src.infra.decorators import logged, timed
 from src.infra.logging import get_logger
@@ -72,8 +76,17 @@ class AttackExecutor:
         self,
         vector: AttackVector,
         payloads: list[str],
+        technologies: list[str] | None = None,
     ) -> tuple[list[SingleAttackResult], int, int]:
         """Execute all payloads for a single vector.
+
+        After each test, records the result in the payload feedback tracker
+        for cross-session learning.
+
+        Args:
+            vector: The attack vector to test.
+            payloads: List of payload strings to try.
+            technologies: Detected technologies for feedback recording.
 
         Returns:
             Tuple of (results list, total attempts, success count).
@@ -94,6 +107,11 @@ class AttackExecutor:
             type(handler).__name__,
         )
 
+        # Determine the primary technology for feedback recording
+        tech_label = vector.attack_type.value
+        if technologies:
+            tech_label = technologies[0].lower()
+
         results: list[SingleAttackResult] = []
         total = 0
         success_count = 0
@@ -107,6 +125,19 @@ class AttackExecutor:
                 results.append(result)
                 if result.success:
                     success_count += 1
+
+                # Record feedback for the payload intelligence system
+                try:
+                    payload_db.record_result(
+                        payload_text=payload,
+                        technology=tech_label,
+                        success=result.success,
+                    )
+                except Exception:
+                    logger.debug(
+                        "Failed to record feedback for payload %s",
+                        payload[:50],
+                    )
             except Exception:
                 logger.exception(
                     "Erreur lors du test du vecteur %s avec payload %s",
@@ -122,12 +153,14 @@ class AttackExecutor:
         self,
         attack_plan: AttackPlan,
         payload_result: PayloadResult,
+        technologies: list[str] | None = None,
     ) -> AttackResult:
         """Execute toutes les attaques du plan.
 
         Args:
             attack_plan: Plan d'attaque avec les vecteurs.
             payload_result: Variantes de payloads generees.
+            technologies: Optional list of detected technologies for feedback.
 
         Returns:
             Resultats de toutes les attaques.
@@ -151,7 +184,11 @@ class AttackExecutor:
             if not payloads:
                 payloads = vector.base_payloads
 
-            results, vec_total, vec_success = self._execute_vector(vector, payloads)
+            results, vec_total, vec_success = self._execute_vector(
+                vector,
+                payloads,
+                technologies=technologies,
+            )
             all_results.extend(results)
             total += vec_total
             success_count += vec_success
