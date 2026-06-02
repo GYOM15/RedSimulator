@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import argparse
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
 
 # Base URL for raw SecLists files on GitHub
@@ -140,8 +140,8 @@ def main() -> int:
         project_root = Path(__file__).resolve().parent.parent
         base_dir = project_root / "data" / "payloads"
 
-    print(f"SecLists Payload Importer")
-    print(f"========================")
+    print("SecLists Payload Importer")
+    print("========================")
     print(f"Output directory: {base_dir}")
     print(f"Force overwrite: {args.force}")
     print()
