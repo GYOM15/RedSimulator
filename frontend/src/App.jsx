@@ -6,6 +6,7 @@
  * des pensees, actions et observations de l'agent.
  */
 
+import { useState } from "react";
 import usePipeline from "./hooks/usePipeline";
 import Sidebar from "./components/Sidebar";
 import ScannerView from "./components/ScannerView";
@@ -15,6 +16,7 @@ import AttackView from "./components/AttackView";
 import ReportView from "./components/ReportView";
 import ChatView from "./components/ChatView";
 import SummaryView from "./components/SummaryView";
+import ProxyView from "./components/ProxyView";
 
 export default function App() {
   const pipeline = usePipeline();
@@ -27,9 +29,15 @@ export default function App() {
     techs, missingHeaders, forms, rules, vectors,
     payloads, attacks, attackStats, reportText,
     reset, run,
+    // Proxy
+    proxyRunning, proxyAvailable, proxyStatus, proxyFlows,
+    startProxy, stopProxy, feedProxy, replayFlow, clearProxyFlows,
   } = pipeline;
 
+  const [showProxy, setShowProxy] = useState(false);
+
   const viewContent = () => {
+    if (showProxy) return <ProxyView proxyStatus={proxyStatus} flows={proxyFlows} onStart={startProxy} onStop={stopProxy} onReplay={replayFlow} onFeed={feedProxy} onClear={clearProxyFlows} proxyAvailable={proxyAvailable} />;
     if (showChat) return <ChatView />;
     if (pipelineDone && activeView === "summary") return <SummaryView scanStats={scanStats} vectors={vectors} payloadCount={payloads.length} attackStats={attackStats} />;
     switch (activeView) {
@@ -43,6 +51,7 @@ export default function App() {
   };
 
   const viewTitle = () => {
+    if (showProxy) return "Proxy MITM — Interception";
     if (showChat) return "Chatbot RAG";
     const labels = { scanning: "Scanner — Reconnaissance", expert: "Systeme Expert — Analyse", generator: "Generateur — Mutations", attacking: "Executeur — Attaques", reporting: "Rapporteur — Generation", summary: "Recapitulatif" };
     return labels[activeView] || "";
@@ -97,10 +106,12 @@ export default function App() {
       {/* Running */}
       {phase !== "idle" && (
         <div style={{ display: "flex", height: "calc(100vh - 50px)" }}>
-          <Sidebar currentPhase={phase} completedPhases={completedPhases} activeView={showChat ? "chat" : activeView}
-            onSelectView={(id) => { setShowChat(false); setActiveView(id); }}
+          <Sidebar currentPhase={phase} completedPhases={completedPhases} activeView={showProxy ? "proxy" : showChat ? "chat" : activeView}
+            onSelectView={(id) => { setShowProxy(false); setShowChat(false); setActiveView(id); }}
             pipelineDone={pipelineDone} onReset={reset}
-            onOpenChat={() => setShowChat(true)} />
+            onOpenChat={() => { setShowProxy(false); setShowChat(true); }}
+            onOpenProxy={() => { setShowChat(false); setShowProxy(true); }}
+            proxyRunning={proxyRunning} />
 
           <div style={{ flex: 1, padding: 24, overflow: "hidden" }}>
             <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>

@@ -482,3 +482,305 @@ def chat(req: ChatRequest):
     except Exception as exc:
         logger.error("Unexpected RAG chatbot error", exc_info=exc)
         return {"answer": "Une erreur est survenue lors du traitement.", "mode": "error"}
+
+
+# ---------------------------------------------------------------------------
+# Proxy endpoints
+# ---------------------------------------------------------------------------
+
+# Check whether mitmproxy is installed at import time so endpoints can
+# return 501 immediately if it is missing.
+try:
+    import mitmproxy  # noqa: F401
+
+    MITMPROXY_AVAILABLE = True
+except ImportError:
+    MITMPROXY_AVAILABLE = False
+
+_proxy_server = None  # ProxyServer | None — lazy singleton
+_flow_store = None  # FlowStore | None — lazy singleton
+
+
+def _get_flow_store():
+    """Return (or create) the shared FlowStore singleton."""
+    global _flow_store
+    if _flow_store is None:
+        from src.proxy.store import FlowStore
+
+        _flow_store = FlowStore()
+    return _flow_store
+
+
+def _require_mitmproxy():
+    """Return a JSONResponse(501) if mitmproxy is not installed, else None."""
+    if not MITMPROXY_AVAILABLE:
+        return JSONResponse(
+            status_code=501,
+            content={
+                "error": "MITMPROXY_NOT_AVAILABLE",
+                "message": (
+                    "mitmproxy is not installed. Install it with: pip install mitmproxy>=10.0"
+                ),
+            },
+        )
+    return None
+
+
+@app.post("/api/proxy/start")
+async def proxy_start():
+    """Start the MITM proxy."""
+    unavailable = _require_mitmproxy()
+    if unavailable:
+        return unavailable
+
+    global _proxy_server
+    try:
+        if _proxy_server is not None and getattr(_proxy_server, "running", False):
+            return JSONResponse(
+                status_code=409,
+                content={"error": "ALREADY_RUNNING", "message": "Proxy is already running"},
+            )
+
+        from src.proxy.server import ProxyServer
+
+        store = _get_flow_store()
+        _proxy_server = ProxyServer(store=store)
+        _proxy_server.start()
+
+        return {
+            "status": "started",
+            "host": getattr(_proxy_server, "host", "127.0.0.1"),
+            "port": getattr(_proxy_server, "port", 8888),
+        }
+    except Exception as exc:
+        logger.error("Failed to start proxy", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "PROXY_START_FAILED", "message": str(exc)},
+        )
+
+
+@app.post("/api/proxy/stop")
+async def proxy_stop():
+    """Stop the MITM proxy."""
+    global _proxy_server
+    try:
+        if _proxy_server is None or not getattr(_proxy_server, "running", False):
+            return JSONResponse(
+                status_code=409,
+                content={"error": "NOT_RUNNING", "message": "Proxy is not running"},
+            )
+
+        _proxy_server.stop()
+        return {"status": "stopped"}
+    except Exception as exc:
+        logger.error("Failed to stop proxy", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "PROXY_STOP_FAILED", "message": str(exc)},
+        )
+
+
+@app.get("/api/proxy/status")
+async def proxy_status():
+    """Get proxy status."""
+    try:
+        store = _get_flow_store()
+        running = _proxy_server is not None and getattr(_proxy_server, "running", False)
+        return {
+            "running": running,
+            "available": MITMPROXY_AVAILABLE,
+            "flows_count": store.count(),
+            "host": getattr(_proxy_server, "host", "127.0.0.1") if _proxy_server else "127.0.0.1",
+            "port": getattr(_proxy_server, "port", 8888) if _proxy_server else 8888,
+        }
+    except Exception as exc:
+        logger.error("Failed to get proxy status", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "PROXY_STATUS_FAILED", "message": str(exc)},
+        )
+
+
+@app.get("/api/proxy/flows")
+async def proxy_flows(
+    url_pattern: str = Query(default=""),
+    method: str = Query(default=""),
+    status_min: int = Query(default=0),
+    status_max: int = Query(default=999),
+    limit: int = Query(default=50),
+    offset: int = Query(default=0),
+):
+    """List captured flows with filtering."""
+    try:
+        store = _get_flow_store()
+        flows = store.search(
+            url_pattern=url_pattern,
+            method=method,
+            status_min=status_min,
+            status_max=status_max,
+            limit=limit,
+            offset=offset,
+        )
+        return {
+            "flows": [f.to_dict() for f in flows],
+            "total": store.count(),
+            "limit": limit,
+            "offset": offset,
+        }
+    except Exception as exc:
+        logger.error("Failed to list proxy flows", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "PROXY_FLOWS_FAILED", "message": str(exc)},
+        )
+
+
+@app.get("/api/proxy/flows/stream")
+async def proxy_flows_stream():
+    """SSE stream of new captured flows."""
+
+    async def _flow_event_generator():
+        queue: asyncio.Queue = asyncio.Queue()
+
+        # Register the queue as a listener on the proxy server
+        if _proxy_server is not None and hasattr(_proxy_server, "add_flow_listener"):
+            _proxy_server.add_flow_listener(queue)
+
+        try:
+            while True:
+                try:
+                    flow_dict = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield _sse("flow", flow_dict)
+                except TimeoutError:
+                    # Send keep-alive comment to prevent connection timeout
+                    yield {"comment": "keep-alive"}
+        finally:
+            if _proxy_server is not None and hasattr(_proxy_server, "remove_flow_listener"):
+                _proxy_server.remove_flow_listener(queue)
+
+    return EventSourceResponse(_flow_event_generator())
+
+
+@app.get("/api/proxy/flows/{flow_id}")
+async def proxy_flow_detail(flow_id: str):
+    """Get a single flow's full details."""
+    try:
+        store = _get_flow_store()
+        flow = store.get(flow_id)
+        if flow is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "FLOW_NOT_FOUND", "message": f"Flow {flow_id} not found"},
+            )
+        return flow.to_dict()
+    except Exception as exc:
+        logger.error("Failed to get flow detail", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "PROXY_FLOW_DETAIL_FAILED", "message": str(exc)},
+        )
+
+
+@app.post("/api/proxy/flows/{flow_id}/replay")
+async def proxy_flow_replay(flow_id: str):
+    """Replay a captured flow."""
+    try:
+        store = _get_flow_store()
+        flow = store.get(flow_id)
+        if flow is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "FLOW_NOT_FOUND", "message": f"Flow {flow_id} not found"},
+            )
+
+        try:
+            from src.proxy.replayer import FlowReplayer
+
+            replayer = FlowReplayer()
+            new_flow = replayer.replay(flow)
+            store.add(new_flow)
+            return new_flow.to_dict()
+        except ImportError:
+            # FlowReplayer not yet available — replay with basic httpx/requests
+            return JSONResponse(
+                status_code=501,
+                content={
+                    "error": "REPLAYER_NOT_AVAILABLE",
+                    "message": "FlowReplayer module is not available yet",
+                },
+            )
+    except Exception as exc:
+        logger.error("Failed to replay flow", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "PROXY_REPLAY_FAILED", "message": str(exc)},
+        )
+
+
+@app.post("/api/proxy/feed")
+async def proxy_feed(host: str = Query(default="")):
+    """Convert captured flows to ScanResult and run pipeline."""
+    try:
+        store = _get_flow_store()
+        flows = store.search(url_pattern=host, limit=500)
+        if not flows:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "NO_FLOWS", "message": "No captured flows to feed"},
+            )
+
+        try:
+            from src.proxy.adapter import ProxyFeedAdapter
+
+            adapter = ProxyFeedAdapter()
+            scan_result = adapter.to_scan_result(flows)
+        except ImportError:
+            # ProxyFeedAdapter not yet available — build a minimal ScanResult
+            from src.scanner.agent import ReconAgent
+
+            scan_result = ReconAgent.from_fixture()
+            logger.warning("ProxyFeedAdapter not available, using fixture scan result")
+
+        _state.last_scan = scan_result
+        return {
+            "status": "fed",
+            "endpoints": len(scan_result.endpoints) if hasattr(scan_result, "endpoints") else 0,
+            "flows_used": len(flows),
+        }
+    except Exception as exc:
+        logger.error("Failed to feed proxy flows", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "PROXY_FEED_FAILED", "message": str(exc)},
+        )
+
+
+@app.delete("/api/proxy/flows")
+async def proxy_flows_clear():
+    """Clear all captured flows."""
+    try:
+        store = _get_flow_store()
+        deleted = store.clear()
+        return {"deleted": deleted}
+    except Exception as exc:
+        logger.error("Failed to clear proxy flows", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "PROXY_CLEAR_FAILED", "message": str(exc)},
+        )
+
+
+@app.get("/api/proxy/export/har")
+async def proxy_export_har():
+    """Export flows as HAR file."""
+    try:
+        store = _get_flow_store()
+        har = store.export_har()
+        return JSONResponse(content=har, media_type="application/json")
+    except Exception as exc:
+        logger.error("Failed to export HAR", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "PROXY_EXPORT_FAILED", "message": str(exc)},
+        )

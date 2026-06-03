@@ -3,7 +3,7 @@
  * et la logique de connexion SSE du pipeline RedSimulator.
  */
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { API } from "../styles/theme";
 
 export default function usePipeline() {
@@ -32,6 +32,13 @@ export default function usePipeline() {
   const [attacks, setAttacks] = useState([]);
   const [attackStats, setAttackStats] = useState({});
   const [reportText, setReportText] = useState("");
+
+  // Proxy state
+  const [proxyRunning, setProxyRunning] = useState(false);
+  const [proxyAvailable, setProxyAvailable] = useState(null); // null = unknown
+  const [proxyStatus, setProxyStatus] = useState(null);
+  const [proxyFlows, setProxyFlows] = useState([]);
+  const proxyEsRef = useRef(null);
 
   const reset = () => {
     clearInterval(timerRef.current);
@@ -89,6 +96,105 @@ export default function usePipeline() {
     src.addEventListener("error", () => { src.close(); });
   }, [target, useFixtures]);
 
+  // ---------------------------------------------------------------------------
+  // Proxy actions
+  // ---------------------------------------------------------------------------
+
+  const fetchProxyStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/proxy/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setProxyStatus(data);
+        setProxyRunning(data.running);
+        setProxyAvailable(data.available);
+      }
+    } catch {
+      // API not reachable — proxy status unknown
+    }
+  }, []);
+
+  const startProxy = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/proxy/start`, { method: "POST" });
+      if (res.ok) {
+        setProxyRunning(true);
+        await fetchProxyStatus();
+        // Start SSE stream for live flows
+        if (proxyEsRef.current) proxyEsRef.current.close();
+        const es = new EventSource(`${API}/proxy/flows/stream`);
+        es.addEventListener("flow", (e) => {
+          const flow = JSON.parse(e.data);
+          setProxyFlows((prev) => [flow, ...prev]);
+        });
+        es.addEventListener("error", () => { /* keep-alive timeouts are normal */ });
+        proxyEsRef.current = es;
+      }
+    } catch (err) {
+      console.error("Failed to start proxy:", err);
+    }
+  }, [fetchProxyStatus]);
+
+  const stopProxy = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/proxy/stop`, { method: "POST" });
+      if (res.ok) {
+        setProxyRunning(false);
+        if (proxyEsRef.current) {
+          proxyEsRef.current.close();
+          proxyEsRef.current = null;
+        }
+        await fetchProxyStatus();
+      }
+    } catch (err) {
+      console.error("Failed to stop proxy:", err);
+    }
+  }, [fetchProxyStatus]);
+
+  const feedProxy = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/proxy/feed`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        return data;
+      }
+    } catch (err) {
+      console.error("Failed to feed proxy:", err);
+    }
+    return null;
+  }, []);
+
+  const replayFlow = useCallback(async (flowId) => {
+    try {
+      const res = await fetch(`${API}/proxy/flows/${flowId}/replay`, { method: "POST" });
+      if (res.ok) {
+        const newFlow = await res.json();
+        setProxyFlows((prev) => [newFlow, ...prev]);
+        return newFlow;
+      }
+    } catch (err) {
+      console.error("Failed to replay flow:", err);
+    }
+    return null;
+  }, []);
+
+  const clearProxyFlows = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/proxy/flows`, { method: "DELETE" });
+      if (res.ok) {
+        setProxyFlows([]);
+        await fetchProxyStatus();
+      }
+    } catch (err) {
+      console.error("Failed to clear proxy flows:", err);
+    }
+  }, [fetchProxyStatus]);
+
+  // Fetch proxy status on mount
+  useEffect(() => {
+    fetchProxyStatus();
+  }, [fetchProxyStatus]);
+
   return {
     // Pipeline state
     phase,
@@ -123,5 +229,16 @@ export default function usePipeline() {
     // Actions
     reset,
     run,
+
+    // Proxy
+    proxyRunning,
+    proxyAvailable,
+    proxyStatus,
+    proxyFlows,
+    startProxy,
+    stopProxy,
+    feedProxy,
+    replayFlow,
+    clearProxyFlows,
   };
 }

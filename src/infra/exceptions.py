@@ -272,6 +272,23 @@ class DockerServiceError(ExternalServiceError):
 
 
 # ---------------------------------------------------------------------------
+# Proxy
+# ---------------------------------------------------------------------------
+
+
+class ProxyError(RedSimulatorError):
+    """MITM proxy module failure."""
+
+    code: str = "PROXY_ERROR"
+
+
+class ProxyNotAvailableError(ProxyError):
+    """mitmproxy is not installed or cannot be started."""
+
+    code: str = "PROXY_NOT_AVAILABLE"
+
+
+# ---------------------------------------------------------------------------
 # Authentication
 # ---------------------------------------------------------------------------
 

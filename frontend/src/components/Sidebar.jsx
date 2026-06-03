@@ -4,7 +4,7 @@
 
 import { STEPS } from "../styles/theme";
 
-export default function Sidebar({ currentPhase, completedPhases, activeView, onSelectView, pipelineDone, onReset, onOpenChat }) {
+export default function Sidebar({ currentPhase, completedPhases, activeView, onSelectView, pipelineDone, onReset, onOpenChat, onOpenProxy, proxyRunning }) {
   return (
     <div style={{ width: 220, borderRight: "1px solid #1e1e2e", padding: 16, flexShrink: 0, display: "flex", flexDirection: "column" }}>
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "#555", marginBottom: 16, textTransform: "uppercase" }}>Pipeline</div>
@@ -32,6 +32,21 @@ export default function Sidebar({ currentPhase, completedPhases, activeView, onS
       })}
 
       <div style={{ flex: 1 }} />
+
+      {/* Proxy button — always visible */}
+      <button onClick={onOpenProxy} style={{
+        width: "100%", background: activeView === "proxy" ? "#1a1a2e" : "transparent",
+        border: `1px solid ${proxyRunning ? "#42a5f5" : "#333"}`, borderRadius: 8,
+        padding: "10px", color: proxyRunning ? "#42a5f5" : "#888", fontSize: 12, fontWeight: 700,
+        cursor: "pointer", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+      }}>
+        <div style={{
+          width: 6, height: 6, borderRadius: "50%",
+          background: proxyRunning ? "#42a5f5" : "#555",
+          animation: proxyRunning ? "pulse 1.5s infinite" : "none",
+        }} />
+        Proxy
+      </button>
 
       {pipelineDone && (
         <>

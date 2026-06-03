@@ -177,6 +177,30 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
+    # Proxy settings
+    # ------------------------------------------------------------------
+    proxy_host: str = Field(
+        default="127.0.0.1",
+        description="Proxy listen address.",
+    )
+    proxy_port: int = Field(
+        default=8888,
+        description="Proxy listen port.",
+    )
+    proxy_ssl_insecure: bool = Field(
+        default=False,
+        description="Skip upstream SSL verification.",
+    )
+    proxy_max_flows: int = Field(
+        default=10000,
+        description="Max flows to store.",
+    )
+    proxy_db_path: str = Field(
+        default="data/proxy/flows.db",
+        description="SQLite DB path for proxy flows.",
+    )
+
+    # ------------------------------------------------------------------
     # API settings
     # ------------------------------------------------------------------
     api_host: str = Field(

@@ -34,6 +34,13 @@ export const SEV = {
   LOW: "#16a34a",
 };
 
+export const STATUS_COLORS = {
+  "2xx": "#4caf50",
+  "3xx": "#ff9800",
+  "4xx": "#f44336",
+  "5xx": "#9c27b0",
+};
+
 export const API = "/api";
 
 export const STEPS = [
