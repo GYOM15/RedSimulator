@@ -5,11 +5,16 @@ La fonction scan_result_to_facts convertit un ScanResult en
 une liste de faits exploitables par le moteur de regles.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.infra.logging import get_logger
 from src.models import ScanResult
+
+if TYPE_CHECKING:
+    from src.passive.models import PassiveReport
 
 logger = get_logger(__name__)
 
@@ -121,6 +126,50 @@ def scan_result_to_facts(scan: ScanResult) -> list[Fact]:
         )
 
     logger.info("%d faits extraits du scan:", len(facts))
+    for f in facts:
+        logger.debug("  - %s", f)
+
+    return facts
+
+
+def passive_findings_to_facts(report: PassiveReport) -> list[Fact]:
+    """Convert passive scan findings into facts for the expert system.
+
+    Each finding becomes a ``passive_finding`` fact with attributes:
+    ``check_name``, ``severity``, ``url``, ``cwe_id``, ``title``,
+    and ``description``.
+
+    Args:
+        report: PassiveReport from the passive analyzer.
+
+    Returns:
+        List of facts representing the passive findings.
+    """
+    from src.passive.models import PassiveReport
+
+    if not isinstance(report, PassiveReport):
+        logger.warning("passive_findings_to_facts: expected PassiveReport, got %s", type(report))
+        return []
+
+    facts: list[Fact] = []
+
+    for finding in report.findings:
+        facts.append(
+            Fact(
+                type="passive_finding",
+                attributes={
+                    "check_name": finding.check_name,
+                    "severity": str(finding.severity),
+                    "url": finding.url,
+                    "cwe_id": finding.cwe_id,
+                    "title": finding.title,
+                    "description": finding.description,
+                },
+                source="passive_scan",
+            )
+        )
+
+    logger.info("%d faits extraits de l'analyse passive:", len(facts))
     for f in facts:
         logger.debug("  - %s", f)
 

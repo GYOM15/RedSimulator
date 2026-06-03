@@ -14,6 +14,7 @@ import json
 import time
 from pathlib import Path
 
+from src.auth.models import AuthConfig, AuthType
 from src.generator.payload_db import payload_db
 from src.infra.config import settings
 from src.infra.decorators import logged, timed
@@ -47,7 +48,10 @@ class AttackExecutor:
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
         self.delay = settings.attack_delay
-        self.session_manager = SessionManager(self.base_url)
+
+        # Build auth config from settings.
+        auth_config = self._build_auth_config()
+        self.session_manager = SessionManager(self.base_url, auth_config=auth_config)
 
         # Discover and instantiate all available handlers.
         handler_classes = get_all_handlers()
@@ -71,6 +75,37 @@ class AttackExecutor:
             )
         else:
             logger.warning("Aucun handler d'attaque disponible.")
+
+    @staticmethod
+    def _build_auth_config() -> AuthConfig | None:
+        """Create an :class:`AuthConfig` from the global settings.
+
+        Returns ``None`` when auth_type is ``"none"`` so the session
+        manager skips authentication entirely.
+        """
+        auth_type_str = settings.auth_type.lower().strip()
+        if auth_type_str == "none":
+            return None
+
+        try:
+            auth_type = AuthType(auth_type_str)
+        except ValueError:
+            logger.warning(
+                "Unknown auth_type '%s' in settings; authentication disabled",
+                auth_type_str,
+            )
+            return None
+
+        return AuthConfig(
+            auth_type=auth_type,
+            username=settings.auth_username,
+            password=settings.auth_password,
+            token=settings.auth_token,
+            login_url=settings.auth_login_url,
+            token_url=settings.auth_token_url,
+            client_id=settings.auth_client_id,
+            client_secret=settings.auth_client_secret,
+        )
 
     def _execute_vector(
         self,

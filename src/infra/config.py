@@ -141,6 +141,42 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
+    # Authentication settings
+    # ------------------------------------------------------------------
+    auth_type: str = Field(
+        default="none",
+        description="Auth type: none, basic, cookie, bearer, oauth2.",
+    )
+    auth_username: str = Field(
+        default="",
+        description="Auth username (for basic and cookie auth).",
+    )
+    auth_password: str = Field(
+        default="",
+        description="Auth password (for basic and cookie auth).",
+    )
+    auth_token: str = Field(
+        default="",
+        description="Bearer token (for bearer auth).",
+    )
+    auth_login_url: str = Field(
+        default="",
+        description="Login URL for cookie-based auth.",
+    )
+    auth_token_url: str = Field(
+        default="",
+        description="Token URL for OAuth2.",
+    )
+    auth_client_id: str = Field(
+        default="",
+        description="OAuth2 client ID.",
+    )
+    auth_client_secret: str = Field(
+        default="",
+        description="OAuth2 client secret.",
+    )
+
+    # ------------------------------------------------------------------
     # API settings
     # ------------------------------------------------------------------
     api_host: str = Field(

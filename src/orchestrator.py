@@ -32,14 +32,16 @@ logger = get_logger(__name__)
 class RedSimulatorPipeline:
     """Pipeline principal de RedSimulator."""
 
-    def __init__(self, target_url: str | None = None):
+    def __init__(self, target_url: str | None = None, passive_scan: bool = True):
         self.target_url = target_url or settings.target_url
+        self.passive_scan = passive_scan
         self.data_dir = Path(__file__).parent.parent / "data"
         self.fixtures_dir = self.data_dir / "fixtures"
         self.reports_dir = self.data_dir / "reports"
 
         # Resultats intermediaires
         self.scan_result: ScanResult | None = None
+        self.passive_report = None  # PassiveReport | None
         self.attack_plan: AttackPlan | None = None
         self.payload_result: PayloadResult | None = None
         self.attack_result: AttackResult | None = None
@@ -64,6 +66,14 @@ class RedSimulatorPipeline:
 
         # Etape 1 : Scanner
         self._step("1/5", "Scanner — Reconnaissance", lambda: self._run_scanner(use_fixtures))
+
+        # Etape 1b (optionnelle) : Passive scan
+        if self.passive_scan and self.scan_result:
+            self._step(
+                "1b/5",
+                "Passive — Analyse passive des reponses HTTP",
+                lambda: self._run_passive_scan(),
+            )
 
         # Etape 2 : Expert
         self._step(
@@ -112,6 +122,19 @@ class RedSimulatorPipeline:
             agent = ReconAgent(self.target_url)
             self.scan_result = agent.run()
 
+    def _run_passive_scan(self) -> None:
+        """Run passive analysis on all endpoints from the scan result."""
+        from src.passive.analyzer import PassiveAnalyzer
+
+        analyzer = PassiveAnalyzer()
+        self.passive_report = analyzer.analyze_scan_result(self.scan_result)
+        severity_counts = self.passive_report.by_severity
+        logger.info(
+            "Passive scan: %d finding(s) — %s",
+            len(self.passive_report.findings),
+            ", ".join(f"{k}: {v}" for k, v in sorted(severity_counts.items())),
+        )
+
     def _run_expert(self, use_fixtures: bool) -> None:
         """Execute ou charge le systeme expert."""
         if use_fixtures:
@@ -120,10 +143,17 @@ class RedSimulatorPipeline:
             logger.info("Fixture chargee: %d vecteurs", len(self.attack_plan.vectors))
         else:
             from src.expert.engine import ExpertEngine
-            from src.expert.facts import scan_result_to_facts
+            from src.expert.facts import passive_findings_to_facts, scan_result_to_facts
             from src.expert.rules import get_all_rules
 
             facts = scan_result_to_facts(self.scan_result)
+
+            # Inject passive findings as additional facts if available
+            if self.passive_report:
+                passive_facts = passive_findings_to_facts(self.passive_report)
+                facts.extend(passive_facts)
+                logger.info("%d passive fact(s) added to expert system", len(passive_facts))
+
             engine = ExpertEngine()
             engine.inject_facts(facts)
             engine.load_rules(get_all_rules())
@@ -172,6 +202,27 @@ class RedSimulatorPipeline:
             (self.reports_dir / "scan_result.json").write_text(
                 self.scan_result.model_dump_json(indent=2)
             )
+        if self.passive_report:
+            passive_data = {
+                "findings": [
+                    {
+                        "check_name": f.check_name,
+                        "severity": str(f.severity),
+                        "title": f.title,
+                        "description": f.description,
+                        "url": f.url,
+                        "evidence": f.evidence,
+                        "cwe_id": f.cwe_id,
+                        "remediation": f.remediation,
+                    }
+                    for f in self.passive_report.findings
+                ],
+                "by_severity": self.passive_report.by_severity,
+                "by_check": self.passive_report.by_check,
+            }
+            (self.reports_dir / "passive_report.json").write_text(
+                json.dumps(passive_data, indent=2, ensure_ascii=False)
+            )
         if self.attack_plan:
             (self.reports_dir / "attack_plan.json").write_text(
                 self.attack_plan.model_dump_json(indent=2)
@@ -206,9 +257,14 @@ if __name__ == "__main__":
         action="store_true",
         help="Utiliser les fixtures au lieu des vrais modules",
     )
+    parser.add_argument(
+        "--no-passive",
+        action="store_true",
+        help="Desactiver l'analyse passive des reponses HTTP",
+    )
     args = parser.parse_args()
 
-    pipeline = RedSimulatorPipeline(target_url=args.target)
+    pipeline = RedSimulatorPipeline(target_url=args.target, passive_scan=not args.no_passive)
     report = pipeline.run(use_fixtures=args.fixtures)
 
     logger.info("Rapport final:\n%s", report)

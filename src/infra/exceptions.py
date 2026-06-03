@@ -269,3 +269,26 @@ class DockerServiceError(ExternalServiceError):
     """Docker daemon or container is not available."""
 
     code: str = "DOCKER_SERVICE_ERROR"
+
+
+# ---------------------------------------------------------------------------
+# Authentication
+# ---------------------------------------------------------------------------
+
+
+class AuthError(RedSimulatorError):
+    """Base exception for authentication failures."""
+
+    code: str = "AUTH_ERROR"
+
+
+class AuthenticationFailedError(AuthError):
+    """Authentication was rejected by the target (bad credentials, etc.)."""
+
+    code: str = "AUTH_FAILED"
+
+
+class TokenExpiredError(AuthError):
+    """An authentication token has expired and could not be refreshed."""
+
+    code: str = "TOKEN_EXPIRED"
