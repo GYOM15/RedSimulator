@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
+from typing import Any
 
 from src.infra.logging import get_logger
 from src.infra.secure import SecureString
@@ -29,7 +30,7 @@ class LLMRuntimeConfig:
     ollama_url: str = ""
     configured: bool = False  # True once user has set config via API
 
-    def to_safe_dict(self) -> dict:
+    def to_safe_dict(self) -> dict[str, Any]:
         """Return config WITHOUT the API key -- safe for API responses."""
         return {
             "provider": self.provider,
@@ -53,13 +54,15 @@ class LLMConfigManager:
 
     _instance: LLMConfigManager | None = None
     _lock: threading.Lock = threading.Lock()
+    _config: LLMRuntimeConfig
 
     def __new__(cls) -> LLMConfigManager:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._config = LLMRuntimeConfig()
+                    instance = super().__new__(cls)
+                    instance._config = LLMRuntimeConfig()
+                    cls._instance = instance
         return cls._instance
 
     def configure(
@@ -68,7 +71,7 @@ class LLMConfigManager:
         model: str,
         api_key: str = "",
         ollama_url: str = "",
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Set the LLM configuration. API key is wrapped in SecureString."""
         with self._lock:
             self._config.provider = provider
@@ -82,14 +85,13 @@ class LLMConfigManager:
                 model,
                 bool(api_key),
             )
-            # NOTE: api_key is NOT logged
         return self._config.to_safe_dict()
 
     def get_config(self) -> LLMRuntimeConfig:
         """Return the current runtime LLM configuration."""
         return self._config
 
-    def get_safe_dict(self) -> dict:
+    def get_safe_dict(self) -> dict[str, Any]:
         """Return a dict representation safe for API responses (no API key)."""
         return self._config.to_safe_dict()
 

@@ -112,7 +112,7 @@ def _call_anthropic(
             kwargs["system"] = system
 
         response = client.messages.create(**kwargs)
-        return response.content[0].text
+        return str(response.content[0].text)
 
     except ImportError as e:
         raise LLMError("anthropic package not installed") from e
@@ -162,7 +162,7 @@ def _call_ollama(
         )
         resp.raise_for_status()
         data = resp.json()
-        return data["message"]["content"]
+        return str(data["message"]["content"])
     except requests.ConnectionError as e:
         raise LLMError(f"Cannot connect to Ollama at {base_url}. Is Ollama running?") from e
     except requests.Timeout as e:
@@ -217,7 +217,7 @@ def _call_openai(
         )
         resp.raise_for_status()
         data = resp.json()
-        return data["choices"][0]["message"]["content"]
+        return str(data["choices"][0]["message"]["content"])
     except requests.ConnectionError as e:
         raise LLMError("Cannot connect to OpenAI API") from e
     except requests.Timeout as e:
@@ -240,7 +240,7 @@ def is_llm_available() -> bool:
             import requests
 
             resp = requests.get(f"{cfg['ollama_url']}/api/tags", timeout=3)
-            return resp.status_code == 200
+            return bool(resp.status_code == 200)
         except Exception:
             return False
     return False
