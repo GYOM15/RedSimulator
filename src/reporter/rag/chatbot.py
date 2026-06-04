@@ -23,8 +23,8 @@ import textwrap
 from collections import Counter
 from typing import TYPE_CHECKING
 
-from src.infra.config import settings
 from src.infra.decorators import logged
+from src.infra.llm import is_llm_available, llm_chat
 from src.infra.logging import get_logger
 
 if TYPE_CHECKING:
@@ -378,9 +378,8 @@ def ask_report(question: str) -> str:
     # ----- Step 2: Generate answer ----------------------------------------
     context_str = "\n\n---\n\n".join(relevant_texts)
 
-    api_key = settings.anthropic_api_key or ""
-    if api_key and not api_key.startswith("sk-ant-..."):
-        return _answer_with_llm(question, context_str, retrieved_contexts, api_key)
+    if is_llm_available():
+        return _answer_with_llm(question, context_str, retrieved_contexts)
     else:
         return _answer_simple(question, relevant_texts, retrieved_contexts)
 
@@ -394,14 +393,9 @@ def _answer_with_llm(
     question: str,
     context: str,
     retrieved: list[RetrievedContext],
-    api_key: str,
 ) -> str:
-    """Generate an answer using Claude API, grounded in retrieved context."""
+    """Generate an answer using the configured LLM, grounded in retrieved context."""
     try:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=api_key)
-
         # Include source attribution in the context block
         source_info = ""
         if retrieved:
@@ -433,19 +427,17 @@ def _answer_with_llm(
             Answer based ONLY on the context above.
             Cite specific vulnerability IDs, endpoints, and severities.""")
 
-        message = client.messages.create(
-            model=settings.llm_model,
-            max_tokens=1024,
-            system=system_prompt,
+        answer = llm_chat(
             messages=[{"role": "user", "content": user_prompt}],
+            system=system_prompt,
+            max_tokens=1024,
         )
 
-        answer = message.content[0].text
-        logger.info("Answer generated with Claude API")
+        logger.info("Answer generated with LLM")
         return answer
 
     except Exception as exc:
-        logger.error("LLM API error: %s, falling back to simple answer", exc)
+        logger.error("LLM error: %s, falling back to simple answer", exc)
         return _answer_simple(question, [context], retrieved)
 
 

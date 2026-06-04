@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  dvwa:
+    image: vulnerables/web-dvwa
+    ports:
+      - "4280:80"
+    environment:
+      - MYSQL_ALLOW_EMPTY_PASSWORD=yes
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/login.php"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  webgoat:
+    image: webgoat/webgoat
+    ports:
+      - "4281:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/WebGoat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    restart: unless-stopped
+
+  hackazon:
+    image: ianwijaya/hackazon
+    ports:
+      - "4282:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped

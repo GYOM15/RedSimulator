@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import re
 
-import anthropic
-
 from src.infra.config import settings
 from src.infra.decorators import logged, retry
 from src.infra.exceptions import LLMError
+from src.infra.llm import is_llm_available, llm_chat
 from src.infra.logging import get_logger
 
 logger = get_logger(__name__)
@@ -119,8 +118,8 @@ def mutate_with_llm(
     Raises:
         LLMError: Si l'appel API echoue.
     """
-    if not settings.anthropic_api_key:
-        raise LLMError("Cle API Anthropic non configuree")
+    if not is_llm_available():
+        raise LLMError("Aucun fournisseur LLM disponible")
 
     context_line = f"Context: {context}\n" if context else ""
     user_prompt = _USER_PROMPT_TEMPLATE.format(
@@ -131,15 +130,12 @@ def mutate_with_llm(
     )
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        response = client.messages.create(
-            model=settings.llm_model,
-            max_tokens=settings.llm_max_tokens,
-            system=_SYSTEM_PROMPT,
+        response_text = llm_chat(
             messages=[{"role": "user", "content": user_prompt}],
+            system=_SYSTEM_PROMPT,
+            max_tokens=settings.llm_max_tokens,
         )
 
-        response_text = response.content[0].text
         variants = _parse_llm_response(response_text, payload)
 
         logger.info(
@@ -151,11 +147,8 @@ def mutate_with_llm(
 
         return variants[:n_variants]
 
-    except anthropic.APIError as e:
-        raise LLMError(
-            f"Erreur API Anthropic: {e}",
-            details={"payload": payload[:50], "attack_type": attack_type},
-        ) from e
+    except LLMError:
+        raise
     except Exception as e:
         raise LLMError(
             f"Erreur inattendue lors de l'appel LLM: {e}",

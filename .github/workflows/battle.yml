@@ -1,0 +1,29 @@
+name: Battle Tests
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'  # Monday 3am UTC
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  battle:
+    name: Battle Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Start targets
+        run: docker compose -f docker/targets/docker-compose.targets.yml up -d
+      - name: Wait for targets
+        run: |
+          for port in 4280 4281 4282; do
+            timeout 60 bash -c "until curl -sf http://localhost:$port; do sleep 2; done"
+          done
+      - run: pytest tests/battle/ -v --tb=short
+      - name: Stop targets
+        if: always()
+        run: docker compose -f docker/targets/docker-compose.targets.yml down

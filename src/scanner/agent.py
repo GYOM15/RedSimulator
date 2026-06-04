@@ -310,6 +310,40 @@ class ReconAgent:
 
             shutdown()
 
+    def _create_llm(self):
+        """Create the LLM instance based on the configured provider."""
+        provider = getattr(settings, "llm_provider", "anthropic").lower().strip()
+
+        if provider == "ollama":
+            try:
+                from langchain_ollama import ChatOllama
+
+                ollama_model = getattr(settings, "ollama_model", "llama3.1")
+                ollama_url = getattr(settings, "ollama_url", "http://localhost:11434")
+                logger.info("Using Ollama LLM: %s at %s", ollama_model, ollama_url)
+                return ChatOllama(
+                    model=ollama_model,
+                    base_url=ollama_url,
+                    temperature=settings.llm_temperature,
+                )
+            except ImportError:
+                logger.warning("langchain-ollama not installed, falling back to Anthropic")
+                # Fall through to Anthropic
+
+        # Default: Anthropic
+        if not settings.anthropic_api_key:
+            logger.warning("No LLM API key configured, agent mode unavailable")
+            return None
+
+        from langchain_anthropic import ChatAnthropic
+
+        logger.info("Using Anthropic LLM: %s", settings.llm_model)
+        return ChatAnthropic(
+            model=settings.llm_model,
+            temperature=settings.llm_temperature,
+            api_key=settings.anthropic_api_key,
+        )
+
     @retry(max_attempts=2, exceptions=(LLMError,))
     def _run_react_agent(self) -> ScanResult | None:
         """Execute l'agent ReAct avec auto-evaluation.
@@ -323,14 +357,12 @@ class ReconAgent:
         Returns:
             ScanResult valide ou None si l'agent echoue.
         """
-        from langchain_anthropic import ChatAnthropic
         from langgraph.prebuilt import create_react_agent
 
-        api_key = settings.anthropic_api_key
-        if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY non definie")
+        llm = self._create_llm()
+        if llm is None:
+            raise ValueError("No LLM provider available (check API key or Ollama config)")
 
-        llm = ChatAnthropic(model=settings.llm_model, temperature=settings.llm_temperature)
         agent = create_react_agent(llm, self.tools)
 
         max_iterations = 1

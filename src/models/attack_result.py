@@ -33,6 +33,9 @@ class SingleAttackResult(BaseModel):
     response_snippet: str
     success: bool
     detection_method: str
+    confidence: float = 0.0
+    confidence_label: str = "unvalidated"
+    validation_details: list[str] = []
 
 
 class AttackResult(BaseModel):

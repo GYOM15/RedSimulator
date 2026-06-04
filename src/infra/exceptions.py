@@ -103,6 +103,12 @@ class PipelineTimeoutError(PipelineError):
     code: str = "PIPELINE_TIMEOUT"
 
 
+class CampaignError(PipelineError):
+    """Multi-target campaign orchestration failure."""
+
+    code: str = "CAMPAIGN_ERROR"
+
+
 # ---------------------------------------------------------------------------
 # Scanner module
 # ---------------------------------------------------------------------------
@@ -229,6 +235,17 @@ class AttackError(ExecutorError):
         base = super().to_safe_dict()
         base["vector_id"] = self.vector_id
         return base
+
+
+# ---------------------------------------------------------------------------
+# Validator
+# ---------------------------------------------------------------------------
+
+
+class ValidatorError(RedSimulatorError):
+    """False-positive validation failure."""
+
+    code: str = "VALIDATOR_ERROR"
 
 
 # ---------------------------------------------------------------------------

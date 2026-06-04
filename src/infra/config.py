@@ -78,6 +78,18 @@ class Settings(BaseSettings):
         default=4096,
         description="Maximum number of tokens the LLM may generate per call.",
     )
+    llm_provider: str = Field(
+        default="anthropic",
+        description="LLM provider: 'anthropic' (Claude) or 'ollama' (local).",
+    )
+    ollama_url: str = Field(
+        default="http://localhost:11434",
+        description="Ollama server URL for local LLM inference.",
+    )
+    ollama_model: str = Field(
+        default="llama3.1",
+        description="Ollama model name (e.g. llama3.1, mistral, codellama).",
+    )
 
     # ------------------------------------------------------------------
     # Scanner settings
@@ -138,6 +150,34 @@ class Settings(BaseSettings):
     executor_timeout: int = Field(
         default=30,
         description="Per-request timeout in seconds for the attack executor.",
+    )
+    rate_limit_adaptive: bool = Field(
+        default=True,
+        description="Enable adaptive rate limiting (adjusts delay based on server responses).",
+    )
+    rate_limit_min_delay: float = Field(
+        default=0.05,
+        description="Minimum delay between requests (seconds) for adaptive rate limiting.",
+    )
+    rate_limit_max_delay: float = Field(
+        default=5.0,
+        description="Maximum delay between requests (seconds) for adaptive rate limiting.",
+    )
+
+    # ------------------------------------------------------------------
+    # Validation settings
+    # ------------------------------------------------------------------
+    validation_enabled: bool = Field(
+        default=True,
+        description="Enable false-positive validation after execution.",
+    )
+    validation_min_confidence: float = Field(
+        default=0.4,
+        description="Minimum confidence to keep a finding (below this it is marked as FP).",
+    )
+    validation_strategies: list[str] = Field(
+        default=["differential", "multi_payload"],
+        description="Validation strategies to use (differential, multi_payload, llm, timing).",
     )
 
     # ------------------------------------------------------------------
@@ -226,6 +266,14 @@ class Settings(BaseSettings):
     recon_service_url: str = Field(
         default="http://localhost:8081",
         description="URL of the reconnaissance micro-service (Nmap wrapper).",
+    )
+
+    # ------------------------------------------------------------------
+    # Campaign settings
+    # ------------------------------------------------------------------
+    campaign_max_parallel: int = Field(
+        default=3,
+        description="Max parallel targets in a campaign.",
     )
 
     # ------------------------------------------------------------------

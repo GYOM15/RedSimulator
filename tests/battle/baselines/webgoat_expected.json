@@ -1,0 +1,8 @@
+{
+  "target": "http://localhost:4281",
+  "min_rules_fired": 5,
+  "expected_attack_types": ["sqli", "xss", "idor"],
+  "min_vectors": 3,
+  "must_have_critical": false,
+  "known_vulnerabilities": []
+}

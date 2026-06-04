@@ -1,0 +1,11 @@
+{
+  "target": "http://localhost:4280",
+  "min_rules_fired": 5,
+  "expected_attack_types": ["sqli", "xss", "command_injection"],
+  "min_vectors": 3,
+  "must_have_critical": false,
+  "known_vulnerabilities": [
+    {"type": "sqli", "endpoint_contains": "sqli", "min_severity": "HIGH"},
+    {"type": "xss", "endpoint_contains": "xss", "min_severity": "MEDIUM"}
+  ]
+}

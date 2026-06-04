@@ -7,10 +7,13 @@ Usage:
     .venv/bin/uvicorn src.api:app --reload --port 8080
 
 Endpoints:
-    GET  /api/health          — Health check
-    GET  /api/scan/stream     — SSE : pipeline live contre une cible
-    GET  /api/scan/fixtures   — SSE : pipeline avec fixtures
-    POST /api/chat            — Question au chatbot RAG
+    GET  /api/health                    — Health check
+    GET  /api/scan/stream               — SSE : pipeline live contre une cible
+    GET  /api/scan/fixtures             — SSE : pipeline avec fixtures
+    POST /api/chat                      — Question au chatbot RAG
+    GET  /api/dashboard/targets         — List all scanned targets
+    GET  /api/dashboard/history/{target}— Scan history for a target
+    GET  /api/dashboard/trends/{target} — Trend data for a target
 """
 
 import asyncio
@@ -128,6 +131,10 @@ async def lifespan(app: FastAPI):
     setup_logging(settings.log_level, settings.log_format)
     logger.info("RedSimulator API starting up")
     yield
+    # Clear sensitive data on shutdown
+    from src.infra.llm_config import llm_config
+
+    llm_config.clear()
     # Shutdown: close Playwright cleanly
     try:
         from src.scanner.browser import shutdown
@@ -175,8 +182,12 @@ def _safe_error_payload(phase: str, exc: Exception) -> dict:
 
 async def _run_pipeline(target: str, use_fixtures: bool):
     """Generateur SSE avec delais pour affichage temps reel."""
+    import time as _time
+
     _state.is_fixtures = use_fixtures
     fixtures_dir = Path(__file__).parent.parent / "data" / "fixtures"
+    pipeline_start = _time.perf_counter()
+    cvss_scores: list[dict] = []
 
     # ── ETAPE 1 : SCANNER ──
     yield _sse("phase", {"phase": "scanning", "label": "Scanner — Reconnaissance"})
@@ -314,11 +325,28 @@ async def _run_pipeline(target: str, use_fixtures: bool):
             yield _sse("vector", v_data)
             await asyncio.sleep(0.5)
 
+        # Compute CVSS scores for each vector
+        from src.scoring import attack_type_to_cvss, calculate_cvss_score
+
+        for v in attack_plan.vectors:
+            cvss_vec = attack_type_to_cvss(v.attack_type.value)
+            score, severity = calculate_cvss_score(cvss_vec)
+            cvss_entry = {
+                "vector_id": v.id,
+                "score": score,
+                "severity": severity,
+                "vector_string": cvss_vec.to_vector_string(),
+            }
+            cvss_scores.append(cvss_entry)
+            yield _sse("cvss_score", cvss_entry)
+            await asyncio.sleep(0.2)
+
         yield _sse(
             "expert_result",
             {
                 "vectors": len(attack_plan.vectors),
                 "rules_fired": attack_plan.rules_fired,
+                "cvss_scores": cvss_scores,
             },
         )
         yield _sse("phase_done", {"phase": "expert"})
@@ -398,7 +426,12 @@ async def _run_pipeline(target: str, use_fixtures: bool):
     try:
         from src.reporter.report_generator import generate_report
 
-        report = generate_report(scan_result, attack_plan, attack_result)
+        report = generate_report(
+            scan_result,
+            attack_plan,
+            attack_result,
+            cvss_scores=cvss_scores,
+        )
         _state.last_report = report
         _state.last_scan = scan_result
         _state.last_plan = attack_plan
@@ -416,6 +449,58 @@ async def _run_pipeline(target: str, use_fixtures: bool):
     except Exception as e:
         yield _sse("error", _safe_error_payload("reporting", e))
         return
+
+    # Record dashboard snapshot
+    try:
+        import uuid as _uuid
+
+        from src.dashboard import DashboardStore, ScanSnapshot
+        from src.reporter.report_generator import _compute_risk_score
+
+        duration_ms = (_time.perf_counter() - pipeline_start) * 1000
+
+        severity_counts: dict[str, int] = {}
+        for v in attack_plan.vectors:
+            sev = v.severity.value
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+
+        success_rate = (
+            attack_result.successful_attacks / attack_result.total_attempts
+            if attack_result.total_attempts > 0
+            else 0.0
+        )
+        risk_score = _compute_risk_score(severity_counts, success_rate)
+        attack_types = sorted({v.attack_type.value for v in attack_plan.vectors})
+
+        snapshot = ScanSnapshot(
+            id=str(_uuid.uuid4()),
+            timestamp=datetime.now(UTC).isoformat(),
+            target=target,
+            total_vectors=len(attack_plan.vectors),
+            total_attempts=attack_result.total_attempts,
+            successful_attacks=attack_result.successful_attacks,
+            severity_counts=severity_counts,
+            attack_types=attack_types,
+            rules_fired=len(attack_plan.rules_fired),
+            cvss_scores=cvss_scores,
+            risk_score=risk_score,
+            duration_ms=duration_ms,
+        )
+
+        db_path = str(Path(__file__).parent.parent / "data" / "dashboard" / "history.db")
+        store = DashboardStore(db_path=db_path)
+        store.record_scan(snapshot)
+        store.close()
+
+        yield _sse(
+            "dashboard_recorded",
+            {
+                "snapshot_id": snapshot.id,
+                "risk_score": risk_score,
+            },
+        )
+    except Exception as e:
+        logger.warning("Failed to record dashboard snapshot via SSE: %s", e)
 
     yield _sse("pipeline_done", {"message": "Pipeline termine"})
 
@@ -444,6 +529,139 @@ async def scan_stream(target: str = Query(default="http://localhost:3000")):
 async def scan_fixtures():
     """Pipeline fixtures via SSE."""
     return EventSourceResponse(_run_pipeline("http://localhost:3000", use_fixtures=True))
+
+
+class CampaignRequest(BaseModel):
+    targets: list[str]
+    name: str = "API Campaign"
+    parallel: bool = False
+    max_parallel: int = 3
+    use_fixtures: bool = False
+
+
+@app.post("/api/campaign/run")
+async def run_campaign(req: CampaignRequest):
+    """Run a campaign against multiple targets (SSE streaming).
+
+    Sends progress events for each target as they are scanned, followed
+    by a final summary event when the campaign completes.
+    """
+    # Validate every target URL
+    for url in req.targets:
+        error = _validate_target_url(url)
+        if error:
+            logger.warning("Rejected campaign target %r: %s", url, error)
+            return JSONResponse(
+                status_code=400,
+                content={"error": "INVALID_TARGET", "message": f"{url}: {error}"},
+            )
+
+    if not req.targets:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "NO_TARGETS", "message": "At least one target URL is required"},
+        )
+
+    async def _campaign_sse():
+        from src.campaign.manager import CampaignManager
+        from src.campaign.models import CampaignConfig, TargetConfig
+
+        targets = [TargetConfig(url=url) for url in req.targets]
+        config = CampaignConfig(
+            name=req.name,
+            targets=targets,
+            parallel=req.parallel,
+            max_parallel=req.max_parallel,
+            use_fixtures=req.use_fixtures,
+        )
+
+        manager = CampaignManager(config)
+
+        # Progress queue bridges synchronous callbacks to async SSE
+        progress_queue: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_event_loop()
+
+        def on_progress(target_name: str, status: str, detail: str):
+            loop.call_soon_threadsafe(
+                progress_queue.put_nowait,
+                {"target": target_name, "status": status, "detail": detail},
+            )
+
+        # Run the campaign in a background thread
+        result_container = [None]
+        error_container = [None]
+
+        def run():
+            try:
+                result_container[0] = manager.run(on_progress=on_progress)
+            except Exception as e:
+                error_container[0] = e
+            finally:
+                loop.call_soon_threadsafe(progress_queue.put_nowait, None)  # sentinel
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+
+        yield _sse(
+            "campaign_start",
+            {
+                "name": config.name,
+                "targets": [t.url for t in config.targets],
+                "parallel": config.parallel,
+            },
+        )
+
+        # Stream progress events until the campaign finishes
+        while True:
+            item = await progress_queue.get()
+            if item is None:
+                break
+            yield _sse("campaign_progress", item)
+            await asyncio.sleep(0.05)
+
+        if error_container[0]:
+            yield _sse("error", _safe_error_payload("campaign", error_container[0]))
+            return
+
+        result = result_container[0]
+
+        # Per-target result events
+        for tr in result.results:
+            tr_data = {
+                "target": tr.target.url,
+                "name": tr.target.name,
+                "status": tr.status,
+                "error": tr.error,
+                "duration_ms": tr.duration_ms,
+                "attack_summary": {
+                    "total_attempts": (
+                        tr.attack_result.get("total_attempts", 0) if tr.attack_result else 0
+                    ),
+                    "successful_attacks": (
+                        tr.attack_result.get("successful_attacks", 0) if tr.attack_result else 0
+                    ),
+                },
+            }
+            yield _sse("campaign_target_result", tr_data)
+            await asyncio.sleep(0.1)
+
+        # Campaign report
+        report = manager.generate_campaign_report()
+        chunk_size = 80
+        for i in range(0, len(report), chunk_size):
+            yield _sse("campaign_report_chunk", {"text": report[i : i + chunk_size]})
+            await asyncio.sleep(0.02)
+
+        # Final summary
+        yield _sse(
+            "campaign_done",
+            {
+                "status": result.status,
+                "summary": result.summary,
+            },
+        )
+
+    return EventSourceResponse(_campaign_sse())
 
 
 class ChatRequest(BaseModel):
@@ -482,6 +700,219 @@ def chat(req: ChatRequest):
     except Exception as exc:
         logger.error("Unexpected RAG chatbot error", exc_info=exc)
         return {"answer": "Une erreur est survenue lors du traitement.", "mode": "error"}
+
+
+# ---------------------------------------------------------------------------
+# LLM Settings endpoints
+# ---------------------------------------------------------------------------
+
+
+class LLMConfigRequest(BaseModel):
+    provider: str  # "anthropic", "ollama", "openai"
+    model: str
+    api_key: str = ""  # Only for cloud providers -- NEVER stored on disk
+    ollama_url: str = ""  # Only for ollama
+
+
+@app.post("/api/settings/llm")
+async def configure_llm(config: LLMConfigRequest):
+    """Configure the LLM provider at runtime.
+
+    The API key is stored in memory only -- it is NEVER persisted to disk,
+    NEVER logged, and NEVER returned in any API response.
+    """
+    from src.infra.llm_config import llm_config
+
+    result = llm_config.configure(
+        provider=config.provider,
+        model=config.model,
+        api_key=config.api_key,
+        ollama_url=config.ollama_url,
+    )
+    # result already excludes the API key
+    return result
+
+
+@app.get("/api/settings/llm")
+async def get_llm_config():
+    """Get current LLM configuration (API key is NEVER included)."""
+    from src.infra.llm_config import llm_config
+
+    config = llm_config.get_safe_dict()
+
+    # Add available providers and their models
+    config["available_providers"] = [
+        {"id": "anthropic", "name": "Anthropic (Claude)", "requires_key": True},
+        {"id": "ollama", "name": "Ollama (Local)", "requires_key": False},
+        {"id": "openai", "name": "OpenAI", "requires_key": True},
+    ]
+
+    # Model suggestions per provider
+    config["suggested_models"] = {
+        "anthropic": [
+            "claude-sonnet-4-20250514",
+            "claude-haiku-4-20250514",
+        ],
+        "ollama": _get_ollama_models(),
+        "openai": [
+            "gpt-4o",
+            "gpt-4o-mini",
+        ],
+    }
+    return config
+
+
+@app.delete("/api/settings/llm")
+async def clear_llm_config():
+    """Clear LLM configuration and API key from memory."""
+    from src.infra.llm_config import llm_config
+
+    llm_config.clear()
+    return {"status": "cleared"}
+
+
+def _get_ollama_models() -> list[str]:
+    """Fetch available models from the local Ollama instance."""
+    try:
+        import requests
+
+        from src.infra.llm_config import llm_config
+
+        runtime = llm_config.get_config()
+        ollama_url = runtime.ollama_url if runtime.configured else settings.ollama_url
+        resp = requests.get(f"{ollama_url}/api/tags", timeout=3)
+        if resp.status_code == 200:
+            return [m["name"] for m in resp.json().get("models", [])]
+    except Exception:
+        pass
+    return []
+
+
+# ---------------------------------------------------------------------------
+# Custom Rules API
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/rules")
+async def list_rules():
+    """List all rules (built-in + custom).
+
+    Returns built-in rule names and all custom rule definitions.
+    """
+    from src.expert.custom_rules import CustomRuleEngine
+    from src.expert.rules import get_all_rules
+
+    try:
+        # Built-in rules (just names and priorities)
+        all_rules = get_all_rules()
+        builtin = [
+            {"name": r.name, "priority": r.priority, "type": "builtin"}
+            for r in all_rules
+            if not r.name.startswith("CUSTOM:")
+        ]
+
+        # Custom rules (full definitions)
+        engine = CustomRuleEngine()
+        custom = [{**rd.to_dict(), "type": "custom"} for rd in engine.list_rules()]
+
+        return {"rules": builtin + custom, "total": len(builtin) + len(custom)}
+    except Exception as exc:
+        logger.error("Failed to list rules", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "RULES_LIST_FAILED", "message": str(exc)},
+        )
+
+
+@app.get("/api/rules/custom")
+async def list_custom_rules():
+    """List user-defined custom rules."""
+    from src.expert.custom_rules import CustomRuleEngine
+
+    try:
+        engine = CustomRuleEngine()
+        rules = engine.list_rules()
+        return {
+            "rules": [r.to_dict() for r in rules],
+            "total": len(rules),
+        }
+    except Exception as exc:
+        logger.error("Failed to list custom rules", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "CUSTOM_RULES_LIST_FAILED", "message": str(exc)},
+        )
+
+
+@app.post("/api/rules/custom")
+async def create_custom_rule(rule: dict):
+    """Create a new custom rule from JSON definition.
+
+    The rule is defined declaratively (no Python code). See the
+    CustomRuleDefinition docstring for the condition/action formats.
+    """
+    from src.expert.custom_rules import CustomRuleDefinition, CustomRuleEngine
+
+    try:
+        defn = CustomRuleDefinition.from_dict(rule)
+        engine = CustomRuleEngine()
+        engine.save_rule(defn)
+        return {"status": "created", "rule": defn.to_dict()}
+    except (ValueError, KeyError) as exc:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "INVALID_RULE", "message": str(exc)},
+        )
+    except Exception as exc:
+        logger.error("Failed to create custom rule", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "CUSTOM_RULE_CREATE_FAILED", "message": str(exc)},
+        )
+
+
+@app.delete("/api/rules/custom/{name}")
+async def delete_custom_rule(name: str):
+    """Delete a custom rule by name."""
+    from src.expert.custom_rules import CustomRuleEngine
+
+    try:
+        engine = CustomRuleEngine()
+        deleted = engine.delete_rule(name)
+        if not deleted:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "RULE_NOT_FOUND", "message": f"Custom rule '{name}' not found"},
+            )
+        return {"status": "deleted", "name": name}
+    except Exception as exc:
+        logger.error("Failed to delete custom rule", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "CUSTOM_RULE_DELETE_FAILED", "message": str(exc)},
+        )
+
+
+@app.put("/api/rules/custom/{name}/toggle")
+async def toggle_custom_rule(name: str):
+    """Enable/disable a custom rule."""
+    from src.expert.custom_rules import CustomRuleEngine
+
+    try:
+        engine = CustomRuleEngine()
+        new_state = engine.toggle_rule(name)
+        if new_state is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "RULE_NOT_FOUND", "message": f"Custom rule '{name}' not found"},
+            )
+        return {"status": "toggled", "name": name, "enabled": new_state}
+    except Exception as exc:
+        logger.error("Failed to toggle custom rule", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "CUSTOM_RULE_TOGGLE_FAILED", "message": str(exc)},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -783,4 +1214,107 @@ async def proxy_export_har():
         return JSONResponse(
             status_code=500,
             content={"error": "PROXY_EXPORT_FAILED", "message": str(exc)},
+        )
+
+
+# ---------------------------------------------------------------------------
+# Dashboard endpoints
+# ---------------------------------------------------------------------------
+
+_dashboard_store = None  # DashboardStore | None — lazy singleton
+
+
+def _get_dashboard_store():
+    """Return (or create) the shared DashboardStore singleton."""
+    global _dashboard_store
+    if _dashboard_store is None:
+        from src.dashboard import DashboardStore
+
+        db_path = str(Path(__file__).parent.parent / "data" / "dashboard" / "history.db")
+        _dashboard_store = DashboardStore(db_path=db_path)
+    return _dashboard_store
+
+
+@app.get("/api/dashboard/targets")
+async def dashboard_targets():
+    """List all targets with their latest scan info."""
+    try:
+        store = _get_dashboard_store()
+        targets = store.get_all_targets()
+        result = []
+        for target in targets:
+            latest = store.get_latest(target)
+            if latest:
+                result.append(
+                    {
+                        "target": target,
+                        "last_scan": latest.timestamp,
+                        "risk_score": latest.risk_score,
+                        "total_vectors": latest.total_vectors,
+                        "successful_attacks": latest.successful_attacks,
+                        "severity_counts": latest.severity_counts,
+                    }
+                )
+        return {"targets": result}
+    except Exception as exc:
+        logger.error("Failed to list dashboard targets", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "DASHBOARD_TARGETS_FAILED", "message": str(exc)},
+        )
+
+
+@app.get("/api/dashboard/history/{target:path}")
+async def dashboard_history(target: str, limit: int = Query(default=50)):
+    """Get scan history for a target."""
+    try:
+        store = _get_dashboard_store()
+        snapshots = store.get_history(target, limit=limit)
+        return {
+            "target": target,
+            "count": len(snapshots),
+            "snapshots": [
+                {
+                    "id": s.id,
+                    "timestamp": s.timestamp,
+                    "total_vectors": s.total_vectors,
+                    "total_attempts": s.total_attempts,
+                    "successful_attacks": s.successful_attacks,
+                    "severity_counts": s.severity_counts,
+                    "attack_types": s.attack_types,
+                    "rules_fired": s.rules_fired,
+                    "cvss_scores": s.cvss_scores,
+                    "risk_score": s.risk_score,
+                    "duration_ms": s.duration_ms,
+                }
+                for s in snapshots
+            ],
+        }
+    except Exception as exc:
+        logger.error("Failed to get dashboard history", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "DASHBOARD_HISTORY_FAILED", "message": str(exc)},
+        )
+
+
+@app.get("/api/dashboard/trends/{target:path}")
+async def dashboard_trends(target: str):
+    """Get trend data for a target."""
+    try:
+        store = _get_dashboard_store()
+        trend = store.get_trend(target)
+        return {
+            "target": target,
+            "total_scans": len(trend.snapshots),
+            "risk_trend": trend.risk_trend,
+            "vuln_trend": trend.vuln_trend,
+            "success_rate_trend": trend.success_rate_trend,
+            "severity_trend": trend.severity_trend,
+        }
+    except Exception as exc:
+        logger.error("Failed to get dashboard trends", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "DASHBOARD_TRENDS_FAILED", "message": str(exc)},
         )

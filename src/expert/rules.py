@@ -1031,4 +1031,13 @@ def get_all_rules() -> list[Rule]:
     rules.extend(get_header_rules())
     rules.extend(get_chaining_rules())
 
+    # Custom user-defined rules loaded from data/custom_rules.json
+    from .custom_rules import CustomRuleEngine
+
+    try:
+        custom_engine = CustomRuleEngine()
+        rules.extend(custom_engine.load())
+    except Exception:
+        logger.exception("Failed to load custom rules; continuing with built-in rules only")
+
     return rules

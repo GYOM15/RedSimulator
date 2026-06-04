@@ -43,10 +43,28 @@ export const STATUS_COLORS = {
 
 export const API = "/api";
 
+export const CONFIDENCE_COLORS = {
+  confirmed: '#4caf50',
+  likely: '#8bc34a',
+  possible: '#ff9800',
+  unlikely: '#ff5722',
+  false_positive: '#f44336',
+};
+
+export const CWE_SEVERITY_COLORS = {
+  CRITICAL: '#f44336',
+  HIGH: '#ff5722',
+  MEDIUM: '#ff9800',
+  LOW: '#2196f3',
+  INFO: '#9e9e9e',
+};
+
 export const STEPS = [
   { id: "scanning", name: "Scanner", tech: "Agent ReAct" },
+  { id: "passive", name: "Passif", tech: "Scan passif" },
   { id: "expert", name: "Analyseur", tech: "Systeme expert" },
   { id: "generator", name: "Generateur", tech: "LLM + Offline" },
   { id: "attacking", name: "Executeur", tech: "Attaques" },
+  { id: "validation", name: "Validation", tech: "Confiance" },
   { id: "reporting", name: "Rapporteur", tech: "LLM" },
 ];

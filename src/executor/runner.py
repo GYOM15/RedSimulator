@@ -29,6 +29,7 @@ from src.models import (
 
 from .attacks import get_all_handlers
 from .base import AttackHandler
+from .rate_limiter import AdaptiveRateLimiter
 from .session import SessionManager
 
 logger = get_logger(__name__)
@@ -41,13 +42,22 @@ class AttackExecutor:
     dedicated :class:`~src.executor.base.AttackHandler` subclass
     discovered at runtime from the ``src.executor.attacks`` package.
 
-    Rate-limited selon ``settings.attack_delay`` entre chaque requete
-    pour ne pas surcharger la cible.
+    Rate-limited via an adaptive rate limiter that dynamically adjusts
+    the delay between requests based on server responses.  Falls back
+    to a fixed delay when adaptive mode is disabled.
     """
 
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
         self.delay = settings.attack_delay
+
+        # Adaptive rate limiter
+        self._adaptive_enabled = settings.rate_limit_adaptive
+        self.rate_limiter = AdaptiveRateLimiter(
+            base_delay=self.delay,
+            min_delay=settings.rate_limit_min_delay,
+            max_delay=settings.rate_limit_max_delay,
+        )
 
         # Build auth config from settings.
         auth_config = self._build_auth_config()
@@ -153,13 +163,26 @@ class AttackExecutor:
 
         for payload in payloads:
             total += 1
-            time.sleep(self.delay)
+
+            # Rate limiting: adaptive or fixed delay
+            if self._adaptive_enabled:
+                self.rate_limiter.wait()
+            else:
+                time.sleep(self.delay)
 
             try:
+                start_time = time.monotonic()
                 result = handler.test(vector, payload)
+                elapsed_ms = (time.monotonic() - start_time) * 1000
+
                 results.append(result)
                 if result.success:
                     success_count += 1
+
+                # Feed response data to the adaptive rate limiter
+                if self._adaptive_enabled:
+                    status = getattr(result, "status_code", 200)
+                    self.rate_limiter.record_response(status, elapsed_ms)
 
                 # Record feedback for the payload intelligence system
                 try:
@@ -179,6 +202,9 @@ class AttackExecutor:
                     vector.id,
                     payload[:80],
                 )
+                # Record connection error for adaptive backoff
+                if self._adaptive_enabled:
+                    self.rate_limiter.record_error()
 
         return results, total, success_count
 

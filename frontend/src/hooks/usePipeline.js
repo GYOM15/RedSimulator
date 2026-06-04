@@ -33,6 +33,14 @@ export default function usePipeline() {
   const [attackStats, setAttackStats] = useState({});
   const [reportText, setReportText] = useState("");
 
+  // Passive scan findings
+  const [passiveFindings, setPassiveFindings] = useState([]);
+  // Validation confidence results
+  const [validationResults, setValidationResults] = useState([]);
+
+  // LLM config state
+  const [llmConfig, setLlmConfig] = useState(null);
+
   // Proxy state
   const [proxyRunning, setProxyRunning] = useState(false);
   const [proxyAvailable, setProxyAvailable] = useState(null); // null = unknown
@@ -47,6 +55,7 @@ export default function usePipeline() {
     setScanLogs([]); setAgentSteps([]); setScanStats({ endpoints: 0, ports: 0, forms: 0, missingHeaders: 0 });
     setEndpoints([]); setPorts([]); setTechs([]); setMissingHeaders([]); setForms([]);
     setRules([]); setVectors([]); setPayloads([]); setAttacks([]); setAttackStats({}); setReportText("");
+    setPassiveFindings([]); setValidationResults([]);
   };
 
   const run = useCallback(() => {
@@ -88,6 +97,15 @@ export default function usePipeline() {
     src.addEventListener("payload", (e) => { setPayloads(prev => [...prev, JSON.parse(e.data)]); });
     src.addEventListener("attack", (e) => { setAttacks(prev => [...prev, JSON.parse(e.data)]); });
     src.addEventListener("executor_result", (e) => { setAttackStats(JSON.parse(e.data)); });
+
+    // Passive scan events
+    src.addEventListener("passive_finding", (e) => { setPassiveFindings(prev => [...prev, JSON.parse(e.data)]); });
+    src.addEventListener("passive_complete", (e) => { setPassiveFindings(JSON.parse(e.data).findings || JSON.parse(e.data)); });
+
+    // Validation confidence events
+    src.addEventListener("validation_result", (e) => { setValidationResults(prev => [...prev, JSON.parse(e.data)]); });
+    src.addEventListener("validation_complete", (e) => { setValidationResults(JSON.parse(e.data).results || JSON.parse(e.data)); });
+
     src.addEventListener("report_chunk", (e) => { setReportText(prev => prev + JSON.parse(e.data).text); });
 
     src.addEventListener("pipeline_done", () => {
@@ -95,6 +113,42 @@ export default function usePipeline() {
     });
     src.addEventListener("error", () => { src.close(); });
   }, [target, useFixtures]);
+
+  // ---------------------------------------------------------------------------
+  // LLM config actions
+  // ---------------------------------------------------------------------------
+
+  const fetchLlmConfig = useCallback(async () => {
+    try {
+      const resp = await fetch(`${API}/api/settings/llm`);
+      if (resp.ok) {
+        const data = await resp.json();
+        setLlmConfig(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch LLM config:", e);
+    }
+  }, []);
+
+  const saveLlmConfig = useCallback(async (config) => {
+    const resp = await fetch(`${API}/api/settings/llm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+    });
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.detail || "Failed to save LLM configuration");
+    }
+    const data = await resp.json();
+    setLlmConfig((prev) => ({ ...prev, ...data }));
+  }, []);
+
+  const clearLlmConfig = useCallback(async () => {
+    const resp = await fetch(`${API}/api/settings/llm`, { method: "DELETE" });
+    if (!resp.ok) throw new Error("Failed to clear LLM configuration");
+    await fetchLlmConfig();
+  }, [fetchLlmConfig]);
 
   // ---------------------------------------------------------------------------
   // Proxy actions
@@ -190,10 +244,11 @@ export default function usePipeline() {
     }
   }, [fetchProxyStatus]);
 
-  // Fetch proxy status on mount
+  // Fetch proxy status and LLM config on mount
   useEffect(() => {
     fetchProxyStatus();
-  }, [fetchProxyStatus]);
+    fetchLlmConfig();
+  }, [fetchProxyStatus, fetchLlmConfig]);
 
   return {
     // Pipeline state
@@ -225,10 +280,17 @@ export default function usePipeline() {
     attacks,
     attackStats,
     reportText,
+    passiveFindings,
+    validationResults,
 
     // Actions
     reset,
     run,
+
+    // LLM config
+    llmConfig,
+    saveLlmConfig,
+    clearLlmConfig,
 
     // Proxy
     proxyRunning,

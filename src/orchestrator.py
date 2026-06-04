@@ -1,16 +1,19 @@
 """Orchestrateur du pipeline RedSimulator.
 
-Enchaine les 5 modules dans l'ordre :
+Enchaine les 6 modules dans l'ordre :
 1. Scanner → ScanResult
 2. Expert → AttackPlan
 3. Generator → PayloadResult
 4. Executor → AttackResult
-5. Reporter → Rapport Markdown
+5. Validator → ValidationResult (optional, FP reduction)
+6. Reporter → Rapport Markdown
 
 Supporte un mode fixtures qui charge les JSON au lieu d'executer les vrais modules.
 """
 
 import json
+import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -46,6 +49,7 @@ class RedSimulatorPipeline:
         self.payload_result: PayloadResult | None = None
         self.attack_result: AttackResult | None = None
         self.report: str = ""
+        self.cvss_scores: list[dict] = []  # CVSS data per vector
 
     @logged
     @timed
@@ -64,37 +68,59 @@ class RedSimulatorPipeline:
             "RedSimulator Pipeline — target=%s, mode=%s, date=%s", self.target_url, mode, ts
         )
 
+        pipeline_start = time.perf_counter()
+
         # Etape 1 : Scanner
-        self._step("1/5", "Scanner — Reconnaissance", lambda: self._run_scanner(use_fixtures))
+        self._step("1/6", "Scanner — Reconnaissance", lambda: self._run_scanner(use_fixtures))
 
         # Etape 1b (optionnelle) : Passive scan
         if self.passive_scan and self.scan_result:
             self._step(
-                "1b/5",
+                "1b/6",
                 "Passive — Analyse passive des reponses HTTP",
                 lambda: self._run_passive_scan(),
             )
 
         # Etape 2 : Expert
         self._step(
-            "2/5", "Expert — Analyse des vulnerabilites", lambda: self._run_expert(use_fixtures)
+            "2/6", "Expert — Analyse des vulnerabilites", lambda: self._run_expert(use_fixtures)
         )
+
+        # Etape 2b : CVSS scoring (after expert phase produces attack vectors)
+        if self.attack_plan:
+            self._step(
+                "2b/6",
+                "CVSS — Calcul des scores CVSS v3.1",
+                lambda: self._compute_cvss_scores(),
+            )
 
         # Etape 3 : Generator
         self._step(
-            "3/5", "Generator — Generation de payloads", lambda: self._run_generator(use_fixtures)
+            "3/6", "Generator — Generation de payloads", lambda: self._run_generator(use_fixtures)
         )
 
         # Etape 4 : Executor
         self._step(
-            "4/5", "Executor — Execution des attaques", lambda: self._run_executor(use_fixtures)
+            "4/6", "Executor — Execution des attaques", lambda: self._run_executor(use_fixtures)
         )
 
-        # Etape 5 : Reporter
-        self._step("5/5", "Reporter — Generation du rapport", lambda: self._run_reporter())
+        # Etape 5 : Validation (optional)
+        if not use_fixtures and settings.validation_enabled:
+            self._step(
+                "5/6",
+                "Validator — Validation des faux positifs",
+                lambda: self._run_validator(),
+            )
+
+        # Etape 6 : Reporter
+        self._step("6/6", "Reporter — Generation du rapport", lambda: self._run_reporter())
 
         # Sauvegarder les resultats
         self._save_results()
+
+        # Record to dashboard history
+        duration_ms = (time.perf_counter() - pipeline_start) * 1000
+        self._record_dashboard_snapshot(duration_ms)
 
         logger.info("Pipeline termine — rapport: %s", self.reports_dir / "report.md")
 
@@ -186,11 +212,152 @@ class RedSimulatorPipeline:
             executor = AttackExecutor(self.target_url)
             self.attack_result = executor.execute_all(self.attack_plan, self.payload_result)
 
+    def _run_validator(self) -> None:
+        """Run false-positive validation on successful findings."""
+        from src.validator import FPValidator
+
+        validator = FPValidator(self.target_url)
+        validation_results = validator.validate_results(self.attack_result, self.attack_plan)
+        self._apply_validation(validation_results)
+
+    def _apply_validation(self, validation_results: list) -> None:
+        """Apply validation results back to the attack result.
+
+        Updates each :class:`SingleAttackResult` with the confidence
+        score and label from the validator, and adjusts the
+        ``successful_attacks`` count based on ``validation_min_confidence``.
+        """
+        from src.validator.models import ValidationResult
+
+        # Index validation results by vector_id
+        vr_map: dict[str, ValidationResult] = {}
+        for vr in validation_results:
+            vr_map[vr.vector_id] = vr
+
+        downgraded = 0
+        for result in self.attack_result.results:
+            if not result.success:
+                continue
+
+            vr = vr_map.get(result.vector_id)
+            if vr is None:
+                continue
+
+            result.confidence = round(vr.confidence.value, 3)
+            result.confidence_label = vr.confidence.label.value
+            result.validation_details = vr.details
+
+            # Downgrade findings below the minimum confidence threshold
+            if vr.confidence.value < settings.validation_min_confidence:
+                result.success = False
+                result.detection_method = (
+                    f"[DOWNGRADED] {result.detection_method} "
+                    f"(confidence={vr.confidence.value:.2f}, "
+                    f"label={vr.confidence.label.value})"
+                )
+                downgraded += 1
+
+        if downgraded:
+            self.attack_result.successful_attacks = max(
+                0,
+                self.attack_result.successful_attacks - downgraded,
+            )
+            logger.info(
+                "Validation downgraded %d finding(s); successful_attacks now %d.",
+                downgraded,
+                self.attack_result.successful_attacks,
+            )
+
+    def _compute_cvss_scores(self) -> None:
+        """Compute CVSS v3.1 base scores for each attack vector in the plan."""
+        from src.scoring import attack_type_to_cvss, calculate_cvss_score
+
+        self.cvss_scores = []
+        for vector in self.attack_plan.vectors:
+            cvss_vec = attack_type_to_cvss(vector.attack_type.value)
+            score, severity = calculate_cvss_score(cvss_vec)
+            self.cvss_scores.append(
+                {
+                    "vector_id": vector.id,
+                    "score": score,
+                    "severity": severity,
+                    "vector_string": cvss_vec.to_vector_string(),
+                }
+            )
+            logger.info(
+                "CVSS %s: %.1f (%s) — %s",
+                vector.id,
+                score,
+                severity,
+                cvss_vec.to_vector_string(),
+            )
+
+    def _record_dashboard_snapshot(self, duration_ms: float) -> None:
+        """Record a scan snapshot to the dashboard history store."""
+        if not self.attack_plan or not self.attack_result:
+            return
+
+        try:
+            from src.dashboard import DashboardStore, ScanSnapshot
+            from src.reporter.report_generator import _compute_risk_score
+
+            # Compute severity counts
+            severity_counts: dict[str, int] = {}
+            for v in self.attack_plan.vectors:
+                sev = v.severity.value
+                severity_counts[sev] = severity_counts.get(sev, 0) + 1
+
+            # Compute success rate and risk score
+            success_rate = (
+                self.attack_result.successful_attacks / self.attack_result.total_attempts
+                if self.attack_result.total_attempts > 0
+                else 0.0
+            )
+            risk_score = _compute_risk_score(severity_counts, success_rate)
+
+            # Unique attack types
+            attack_types = list({v.attack_type.value for v in self.attack_plan.vectors})
+
+            snapshot = ScanSnapshot(
+                id=str(uuid.uuid4()),
+                timestamp=datetime.now(ZoneInfo("America/Toronto")).isoformat(),
+                target=self.target_url,
+                total_vectors=len(self.attack_plan.vectors),
+                total_attempts=self.attack_result.total_attempts,
+                successful_attacks=self.attack_result.successful_attacks,
+                severity_counts=severity_counts,
+                attack_types=sorted(attack_types),
+                rules_fired=len(self.attack_plan.rules_fired),
+                cvss_scores=self.cvss_scores,
+                risk_score=risk_score,
+                duration_ms=duration_ms,
+            )
+
+            db_path = str(self.data_dir / "dashboard" / "history.db")
+            store = DashboardStore(db_path=db_path)
+            store.record_scan(snapshot)
+            store.close()
+
+            logger.info(
+                "Dashboard snapshot recorded: %s (risk=%d, duration=%.0fms)",
+                snapshot.id,
+                risk_score,
+                duration_ms,
+            )
+        except Exception as e:
+            # Dashboard recording is non-critical; log and continue
+            logger.warning("Failed to record dashboard snapshot: %s", e)
+
     def _run_reporter(self) -> None:
         """Genere le rapport."""
         from src.reporter.report_generator import generate_report
 
-        self.report = generate_report(self.scan_result, self.attack_plan, self.attack_result)
+        self.report = generate_report(
+            self.scan_result,
+            self.attack_plan,
+            self.attack_result,
+            cvss_scores=self.cvss_scores,
+        )
         logger.info("Rapport genere: %d caracteres", len(self.report))
 
     def _save_results(self) -> None:

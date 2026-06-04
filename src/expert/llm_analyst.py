@@ -9,11 +9,10 @@ from __future__ import annotations
 import json
 import re
 
-import anthropic
-
 from src.infra.config import settings
 from src.infra.decorators import logged, retry, safe
 from src.infra.exceptions import LLMError
+from src.infra.llm import is_llm_available, llm_chat
 from src.infra.logging import get_logger
 from src.models.attack_plan import AttackPlan, AttackType, AttackVector, Severity
 from src.models.scan_result import ScanResult
@@ -215,31 +214,21 @@ def llm_analyze(scan: ScanResult, rule_plan: AttackPlan) -> list[AttackVector]:
     Returns:
         List of additional AttackVectors found by the LLM.
     """
-    # 1. Check for API key availability
-    if not settings.anthropic_api_key:
-        logger.info("LLM analysis skipped: no ANTHROPIC_API_KEY configured")
+    # 1. Check for LLM availability
+    if not is_llm_available():
+        logger.info("LLM analysis skipped: no LLM provider available")
         return []
 
     # 2. Build the prompt
     prompt = _build_prompt(scan, rule_plan)
 
-    # 3. Call Claude via the Anthropic SDK
-    try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        response = client.messages.create(
-            model=settings.llm_model,
-            max_tokens=settings.llm_max_tokens,
-            temperature=settings.llm_temperature,
-            messages=[{"role": "user", "content": prompt}],
-        )
-    except Exception as exc:
-        raise LLMError(f"Anthropic API call failed: {exc}") from exc
-
-    # 4. Extract text content from the response
-    response_text = ""
-    for block in response.content:
-        if hasattr(block, "text"):
-            response_text += block.text
+    # 3. Call the LLM via the unified provider abstraction
+    response_text = llm_chat(
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=settings.llm_max_tokens,
+        temperature=settings.llm_temperature,
+        json_mode=True,
+    )
 
     if not response_text.strip():
         logger.info("LLM returned empty response")

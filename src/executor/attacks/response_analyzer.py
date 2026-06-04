@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import json
 
-import anthropic
-
-from src.infra.config import settings
 from src.infra.decorators import logged, safe
+from src.infra.llm import is_llm_available, llm_chat
 from src.infra.logging import get_logger
 
 logger = get_logger(__name__)
@@ -67,9 +65,9 @@ def analyze_response(
         and ``explanation`` (str).  Returns ``None`` when the LLM is
         unavailable or the response cannot be parsed.
     """
-    # Guard: no API key means we cannot call Claude.
-    if not settings.anthropic_api_key:
-        logger.debug("Anthropic API key not configured; skipping LLM analysis")
+    # Guard: no LLM available means we cannot analyze.
+    if not is_llm_available():
+        logger.debug("No LLM provider available; skipping LLM analysis")
         return None
 
     # Truncate the body to keep token usage minimal.
@@ -85,18 +83,13 @@ def analyze_response(
         max_body_len=_MAX_BODY_LENGTH,
     )
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    logger.debug("Sending response analysis request to LLM")
 
-    logger.debug("Sending response analysis request to %s", settings.llm_model)
-
-    message = client.messages.create(
-        model=settings.llm_model,
-        max_tokens=256,
+    raw_text = llm_chat(
         messages=[{"role": "user", "content": prompt}],
-    )
-
-    # Extract the text content from the response.
-    raw_text = message.content[0].text.strip()
+        max_tokens=256,
+        json_mode=True,
+    ).strip()
 
     # Parse the JSON. The model should return a bare JSON object, but
     # sometimes wraps it in markdown code fences.

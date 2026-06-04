@@ -1,0 +1,64 @@
+{
+  "7dd0fdf1c9dd": {
+    "target": "http://localhost:3001",
+    "scans": [
+      {
+        "date": "2026-06-04T11:40:01.569842-04:00",
+        "endpoints_count": 28,
+        "endpoints": [
+          "/robots.txt",
+          "/.well-known/security.txt",
+          "/api/BasketItems",
+          "/api/Users",
+          "/api/SecurityAnswers",
+          "/api/Complaints",
+          "/api/Recycles",
+          "/api/Cards",
+          "/api/Addresss",
+          "/rest/repeat-notification",
+          "/rest/continue-code",
+          "/rest/user/authentication-details/",
+          "/rest/user/whoami",
+          "/rest/saveLoginIp",
+          "/rest/deluxe-membership",
+          "/api/Deliverys",
+          "/rest/image-captcha/",
+          "/rest/wallet/balance",
+          "/rest/continue-code-fixIt",
+          "/rest/captcha",
+          "/api/Feedbacks",
+          "/api/Quantitys",
+          "/api/SecurityQuestions",
+          "/api/Products",
+          "/api/Challenges",
+          "/api/Hints",
+          "/rest/continue-code-findIt",
+          "/rest/memories"
+        ],
+        "ports": [
+          8000,
+          6379,
+          3000,
+          5432,
+          8080
+        ],
+        "technologies": [
+          "Angular",
+          "Angular Material",
+          "Application 19.2.1",
+          "MongoDB",
+          "Socket.IO"
+        ],
+        "risk_score": 70,
+        "missing_headers": [
+          "Content-Security-Policy",
+          "Strict-Transport-Security",
+          "X-XSS-Protection",
+          "Referrer-Policy",
+          "Permissions-Policy"
+        ],
+        "forms_count": 0
+      }
+    ]
+  }
+}

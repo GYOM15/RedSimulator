@@ -9,7 +9,8 @@ from the ``src.executor.attacks`` package.
 """
 
 from .base import AttackHandler
+from .rate_limiter import AdaptiveRateLimiter
 from .runner import AttackExecutor
 from .session import SessionManager
 
-__all__ = ["AttackExecutor", "AttackHandler", "SessionManager"]
+__all__ = ["AdaptiveRateLimiter", "AttackExecutor", "AttackHandler", "SessionManager"]

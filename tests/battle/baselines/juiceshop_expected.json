@@ -1,0 +1,12 @@
+{
+  "target": "http://localhost:3000",
+  "min_rules_fired": 10,
+  "expected_attack_types": ["sqli", "xss", "idor", "auth_bypass", "info_disclosure"],
+  "min_vectors": 5,
+  "must_have_critical": true,
+  "known_vulnerabilities": [
+    {"type": "sqli", "endpoint": "/rest/user/login", "min_severity": "HIGH"},
+    {"type": "xss", "endpoint": "/api/Feedbacks", "min_severity": "MEDIUM"},
+    {"type": "idor", "endpoint": "/rest/basket/1", "min_severity": "HIGH"}
+  ]
+}

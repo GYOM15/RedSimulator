@@ -13,10 +13,13 @@ import ScannerView from "./components/ScannerView";
 import ExpertView from "./components/ExpertView";
 import GeneratorView from "./components/VAEView";
 import AttackView from "./components/AttackView";
+import PassiveView from "./components/PassiveView";
+import ValidatorView from "./components/ValidatorView";
 import ReportView from "./components/ReportView";
 import ChatView from "./components/ChatView";
 import SummaryView from "./components/SummaryView";
 import ProxyView from "./components/ProxyView";
+import SettingsPanel from "./components/SettingsPanel";
 
 export default function App() {
   const pipeline = usePipeline();
@@ -28,13 +31,17 @@ export default function App() {
     scanLogs, agentSteps, scanStats, endpoints, ports,
     techs, missingHeaders, forms, rules, vectors,
     payloads, attacks, attackStats, reportText,
+    passiveFindings, validationResults,
     reset, run,
+    // LLM config
+    llmConfig, saveLlmConfig, clearLlmConfig,
     // Proxy
     proxyRunning, proxyAvailable, proxyStatus, proxyFlows,
     startProxy, stopProxy, feedProxy, replayFlow, clearProxyFlows,
   } = pipeline;
 
   const [showProxy, setShowProxy] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const viewContent = () => {
     if (showProxy) return <ProxyView proxyStatus={proxyStatus} flows={proxyFlows} onStart={startProxy} onStop={stopProxy} onReplay={replayFlow} onFeed={feedProxy} onClear={clearProxyFlows} proxyAvailable={proxyAvailable} />;
@@ -42,9 +49,11 @@ export default function App() {
     if (pipelineDone && activeView === "summary") return <SummaryView scanStats={scanStats} vectors={vectors} payloadCount={payloads.length} attackStats={attackStats} />;
     switch (activeView) {
       case "scanning": return <ScannerView logs={scanLogs} agentSteps={agentSteps} endpoints={endpoints} ports={ports} techs={techs} headers={missingHeaders} forms={forms} stats={scanStats} />;
+      case "passive": return <PassiveView findings={passiveFindings} />;
       case "expert": return <ExpertView rules={rules} vectors={vectors} />;
       case "generator": return <GeneratorView payloads={payloads} />;
       case "attacking": return <AttackView attacks={attacks} stats={attackStats} />;
+      case "validation": return <ValidatorView validationResults={validationResults} attackResults={attacks} />;
       case "reporting": return <ReportView text={reportText} />;
       default: return null;
     }
@@ -53,7 +62,7 @@ export default function App() {
   const viewTitle = () => {
     if (showProxy) return "Proxy MITM — Interception";
     if (showChat) return "Chatbot RAG";
-    const labels = { scanning: "Scanner — Reconnaissance", expert: "Systeme Expert — Analyse", generator: "Generateur — Mutations", attacking: "Executeur — Attaques", reporting: "Rapporteur — Generation", summary: "Recapitulatif" };
+    const labels = { scanning: "Scanner — Reconnaissance", passive: "Scan Passif — Decouvertes", expert: "Systeme Expert — Analyse", generator: "Generateur — Mutations", attacking: "Executeur — Attaques", validation: "Validation — Confiance", reporting: "Rapporteur — Generation", summary: "Recapitulatif" };
     return labels[activeView] || "";
   };
 
@@ -77,6 +86,19 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 12, color: "#666" }}>
           {phase !== "idle" && <span>{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}</span>}
           {phase !== "idle" && <span>{target}</span>}
+          {/* LLM status + settings gear in header */}
+          <button onClick={() => setShowSettings(true)} style={{
+            background: "none", border: "1px solid #333", borderRadius: 6,
+            padding: "4px 10px", color: "#888", fontSize: 11, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            LLM
+            {llmConfig?.api_key_set && <span style={{ color: "#2e7d32" }}>&#x2713;</span>}
+          </button>
         </div>
       </div>
 
@@ -111,7 +133,9 @@ export default function App() {
             pipelineDone={pipelineDone} onReset={reset}
             onOpenChat={() => { setShowProxy(false); setShowChat(true); }}
             onOpenProxy={() => { setShowChat(false); setShowProxy(true); }}
-            proxyRunning={proxyRunning} />
+            proxyRunning={proxyRunning}
+            onOpenSettings={() => setShowSettings(true)}
+            llmConfig={llmConfig} />
 
           <div style={{ flex: 1, padding: 24, overflow: "hidden" }}>
             <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
@@ -123,6 +147,15 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* LLM Settings Modal */}
+      <SettingsPanel
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        llmConfig={llmConfig}
+        onSave={saveLlmConfig}
+        onClear={clearLlmConfig}
+      />
     </div>
   );
 }

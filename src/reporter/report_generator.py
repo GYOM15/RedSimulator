@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from src.infra.config import settings
 from src.infra.decorators import logged
+from src.infra.llm import is_llm_available, llm_chat
 from src.infra.logging import get_logger
 from src.models import AttackPlan, AttackResult, ScanResult
 
@@ -157,6 +158,7 @@ def generate_report(
     scan: ScanResult,
     plan: AttackPlan,
     results: AttackResult,
+    cvss_scores: list[dict] | None = None,
 ) -> str:
     """Genere un rapport Markdown des vulnerabilites trouvees.
 
@@ -167,36 +169,36 @@ def generate_report(
         scan: Resultats du scan.
         plan: Plan d'attaque genere.
         results: Resultats de l'execution.
+        cvss_scores: Optional list of CVSS score dicts from the scoring module.
+            Each dict has keys: vector_id, score, severity, vector_string.
 
     Returns:
         Rapport en format Markdown.
     """
     logger.info("Generation du rapport de vulnerabilites...")
 
-    api_key = settings.anthropic_api_key or ""
-    if api_key and not api_key.startswith("sk-ant-..."):
-        return _generate_with_llm(scan, plan, results, api_key)
+    if is_llm_available():
+        return _generate_with_llm(scan, plan, results, cvss_scores=cvss_scores)
     else:
-        logger.warning("Pas de cle API, utilisation du template statique")
-        return _generate_template(scan, plan, results)
+        logger.warning("Pas de LLM disponible, utilisation du template statique")
+        return _generate_template(scan, plan, results, cvss_scores=cvss_scores)
 
 
 def _generate_with_llm(
     scan: ScanResult,
     plan: AttackPlan,
     results: AttackResult,
-    api_key: str,
+    cvss_scores: list[dict] | None = None,
 ) -> str:
-    """Genere le rapport via Claude API."""
+    """Genere le rapport via le fournisseur LLM configure."""
     try:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=api_key)
+        import json as _json
 
         # Prepare structured data for the prompt
         scan_json = scan.model_dump_json(indent=2)
         plan_json = plan.model_dump_json(indent=2)
         results_json = results.model_dump_json(indent=2)
+        cvss_json = _json.dumps(cvss_scores or [], indent=2)
 
         system_prompt = textwrap.dedent("""\
             Tu es un expert en securite informatique redacteur de rapports de pentest professionnels.
@@ -222,6 +224,11 @@ def _generate_with_llm(
             {results_json}
             ```
 
+            ## Scores CVSS v3.1
+            ```json
+            {cvss_json}
+            ```
+
             Le rapport DOIT contenir les sections suivantes dans cet ordre exact :
 
             ### 1. Resume executif (2-3 paragraphes)
@@ -231,7 +238,8 @@ def _generate_with_llm(
             - Principaux risques metier
 
             ### 2. Matrice des vulnerabilites
-            Tableau Markdown avec colonnes : ID | Type | Severite | Endpoint | Statut | OWASP Top 10
+            Tableau Markdown avec colonnes : ID | Type | Severite | CVSS Score | Endpoint | Statut | OWASP Top 10
+            Inclure le score CVSS v3.1 et le vecteur pour chaque vulnerabilite.
 
             ### 3. Detail de chaque vulnerabilite
             Pour chaque vulnerabilite :
@@ -257,29 +265,34 @@ def _generate_with_llm(
             Format : Markdown propre, professionnel, en francais.
             Ne pas inventer de vulnerabilites absentes des donnees.""")
 
-        message = client.messages.create(
-            model=settings.llm_model,
-            max_tokens=settings.llm_max_tokens,
-            system=system_prompt,
+        report = llm_chat(
             messages=[{"role": "user", "content": user_prompt}],
+            system=system_prompt,
+            max_tokens=settings.llm_max_tokens,
         )
 
-        report = message.content[0].text
-        logger.info("Rapport genere avec Claude API")
+        logger.info("Rapport genere avec LLM")
         return report
 
     except Exception as e:
-        logger.error("Erreur API: %s, fallback sur template", e)
-        return _generate_template(scan, plan, results)
+        logger.error("Erreur LLM: %s, fallback sur template", e)
+        return _generate_template(scan, plan, results, cvss_scores=cvss_scores)
 
 
 def _generate_template(
     scan: ScanResult,
     plan: AttackPlan,
     results: AttackResult,
+    cvss_scores: list[dict] | None = None,
 ) -> str:
     """Genere un rapport template sans LLM."""
     now = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M")
+
+    # Build CVSS lookup by vector_id
+    cvss_map: dict[str, dict] = {}
+    if cvss_scores:
+        for cs in cvss_scores:
+            cvss_map[cs["vector_id"]] = cs
 
     # --- Severity counts ---
     severity_counts: dict[str, int] = {}
@@ -296,17 +309,20 @@ def _generate_template(
     risk_level = _compute_risk_level(severity_counts, success_rate)
     risk_score = _compute_risk_score(severity_counts, success_rate)
 
-    # --- Vulnerability matrix table ---
+    # --- Vulnerability matrix table (with CVSS) ---
     vuln_rows = []
     for v in plan.vectors:
         success = any(r.success and r.vector_id == v.id for r in results.results)
         status = "Exploitee" if success else "Non exploitee"
         owasp = _OWASP_MAP.get(v.attack_type.value, v.owasp_ref)
+        cvss_info = cvss_map.get(v.id)
+        cvss_cell = f"{cvss_info['score']:.1f} ({cvss_info['severity']})" if cvss_info else "N/A"
         vuln_rows.append(
             f"| {v.id} | {v.attack_type.value.upper()} | {v.severity.value} "
+            f"| {cvss_cell} "
             f"| `{v.target_endpoint}` | {status} | {owasp} |"
         )
-    vuln_table = "\n".join(vuln_rows) if vuln_rows else "| - | - | - | - | - | - |"
+    vuln_table = "\n".join(vuln_rows) if vuln_rows else "| - | - | - | - | - | - | - |"
 
     # --- Per-vulnerability details ---
     details_parts: list[str] = []
@@ -321,6 +337,12 @@ def _generate_template(
         lines.append("")
         lines.append(f"**Endpoint cible :** `{v.target_endpoint}`")
         lines.append(f"**Reference OWASP :** {owasp}")
+        cvss_info = cvss_map.get(v.id)
+        if cvss_info:
+            lines.append(
+                f"**Score CVSS v3.1 :** {cvss_info['score']:.1f} ({cvss_info['severity']}) "
+                f"-- `{cvss_info['vector_string']}`"
+            )
         lines.append("")
         lines.append("**Description :**")
         lines.append("")
@@ -487,8 +509,8 @@ sur {results.total_attempts} tentative(s) ({success_rate:.0%} de reussite).
 
 ## 2. Matrice des vulnerabilites
 
-| ID | Type | Severite | Endpoint | Statut | OWASP Top 10 |
-|----|------|----------|----------|--------|--------------|
+| ID | Type | Severite | CVSS v3.1 | Endpoint | Statut | OWASP Top 10 |
+|----|------|----------|-----------|----------|--------|--------------|
 {vuln_table}
 
 ---
