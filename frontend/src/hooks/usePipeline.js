@@ -10,6 +10,8 @@ export default function usePipeline() {
   const [phase, setPhase] = useState("idle");
   const [completedPhases, setCompletedPhases] = useState([]);
   const [activeView, setActiveView] = useState("scanning");
+  const [userNavigated, setUserNavigated] = useState(false);
+  const userNavigatedRef = useRef(false);
   const [showChat, setShowChat] = useState(false);
   const [target, setTarget] = useState("http://localhost:3000");
   const [useFixtures, setUseFixtures] = useState(false);
@@ -48,9 +50,17 @@ export default function usePipeline() {
   const [proxyFlows, setProxyFlows] = useState([]);
   const proxyEsRef = useRef(null);
 
+  // Wrap setActiveView: when called by user (from sidebar), mark userNavigated
+  const setActiveViewUser = useCallback((view) => {
+    setActiveView(view);
+    setUserNavigated(true);
+    userNavigatedRef.current = true;
+  }, []);
+
   const reset = () => {
     clearInterval(timerRef.current);
     setPhase("idle"); setCompletedPhases([]); setActiveView("scanning"); setShowChat(false);
+    setUserNavigated(false); userNavigatedRef.current = false;
     setElapsed(0); setPipelineDone(false);
     setScanLogs([]); setAgentSteps([]); setScanStats({ endpoints: 0, ports: 0, forms: 0, missingHeaders: 0 });
     setEndpoints([]); setPorts([]); setTechs([]); setMissingHeaders([]); setForms([]);
@@ -69,7 +79,10 @@ export default function usePipeline() {
     src.addEventListener("phase", (e) => {
       const d = JSON.parse(e.data);
       setPhase(d.phase);
-      setActiveView(d.phase);
+      // Only auto-switch view if user hasn't manually navigated
+      if (!userNavigatedRef.current) {
+        setActiveView(d.phase);
+      }
     });
 
     src.addEventListener("phase_done", (e) => {
@@ -109,7 +122,13 @@ export default function usePipeline() {
     src.addEventListener("report_chunk", (e) => { setReportText(prev => prev + JSON.parse(e.data).text); });
 
     src.addEventListener("pipeline_done", () => {
-      setPipelineDone(true); setActiveView("summary"); clearInterval(timerRef.current); src.close();
+      setPipelineDone(true);
+      // Auto-switch to summary, and reset userNavigated on completion
+      setActiveView("summary");
+      setUserNavigated(false);
+      userNavigatedRef.current = false;
+      clearInterval(timerRef.current);
+      src.close();
     });
     src.addEventListener("error", () => {
       src.close();
@@ -260,7 +279,8 @@ export default function usePipeline() {
     phase,
     completedPhases,
     activeView,
-    setActiveView,
+    setActiveView: setActiveViewUser,
+    userNavigated,
     showChat,
     setShowChat,
     target,

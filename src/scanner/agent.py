@@ -609,46 +609,99 @@ class ReconAgent:
         return reasoning
 
     def _fallback_sequential(self) -> ScanResult:
-        """Fallback : orchestre les outils sequentiellement sans LLM."""
+        """Fallback : orchestre les outils sequentiellement sans LLM.
+
+        Each tool invocation emits ``scan_log`` events before and after
+        execution so the frontend can display real-time progress.
+        """
+        self._emit("scan_log", {"text": "Mode fallback: execution sequentielle des outils..."})
+
+        # 1. Port scan
         self._emit("scan_log", {"text": "Scan des ports..."})
         ports = self._scan_ports()
         for p in ports:
             self._emit("port", p)
             time.sleep(0.1)
-        self._emit("scan_log", {"text": f"{len(ports)} ports trouves"})
+        self._emit("scan_log", {"text": f"Ports: {len(ports)} trouves"})
 
+        # 2. Endpoint discovery
         self._emit("scan_log", {"text": "Decouverte des endpoints..."})
         endpoints = self._discover_endpoints()
         for ep in endpoints:
             self._emit("endpoint", ep)
-        self._emit("scan_log", {"text": f"{len(endpoints)} endpoints decouverts"})
+        self._emit("scan_log", {"text": f"Endpoints: {len(endpoints)} decouverts"})
 
-        self._emit("scan_log", {"text": "Verification des headers..."})
+        # 3. Header check
+        self._emit("scan_log", {"text": "Verification des headers de securite..."})
         headers = self._check_headers()
         for h in headers.get("missing_security_headers", []):
             self._emit("missing_header", {"name": h})
             time.sleep(0.05)
-        self._emit(
-            "scan_log",
-            {"text": f"{len(headers.get('missing_security_headers', []))} headers manquants"},
-        )
+        missing_count = len(headers.get("missing_security_headers", []))
+        self._emit("scan_log", {"text": f"Headers: {missing_count} manquants"})
 
+        # 4. Technology detection
         self._emit("scan_log", {"text": "Detection des technologies..."})
         technologies = self._detect_technologies()
         for tech in technologies:
             self._emit("technology", {"name": tech})
             time.sleep(0.1)
+        tech_preview = ", ".join(technologies[:5]) if technologies else "aucune"
+        self._emit("scan_log", {"text": f"Technologies: {tech_preview}"})
+
+        # 5. Directory bruteforce (sensitive paths)
+        self._emit("scan_log", {"text": "Bruteforce des repertoires sensibles..."})
+        dir_result = _safe_invoke(
+            directory_bruteforce,
+            {"target": self.target_url, "category": "sensitive"},
+            fallback=[],
+        )
+        dir_endpoints = dir_result if isinstance(dir_result, list) else []
+        for dep in dir_endpoints:
+            self._emit("endpoint", dep)
         self._emit(
             "scan_log",
-            {"text": f"Technologies: {', '.join(technologies[:5]) if technologies else 'aucune'}"},
+            {"text": f"Repertoires sensibles: {len(dir_endpoints)} trouves"},
         )
 
+        # 6. API spec scanning
+        self._emit("scan_log", {"text": "Recherche de specs API (OpenAPI/Swagger/GraphQL)..."})
+        api_result = _safe_invoke(
+            api_spec_scanner,
+            {"target": self.target_url},
+            fallback={},
+        )
+        api_endpoints = api_result.get("endpoints", []) if isinstance(api_result, dict) else []
+        self._emit(
+            "scan_log",
+            {"text": f"Specs API: {len(api_endpoints)} endpoints documentes"},
+        )
+
+        # 7. DNS enumeration (skip for localhost / raw IPs)
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.target_url)
+        hostname = parsed.hostname or ""
+        is_local = hostname in ("localhost", "127.0.0.1", "0.0.0.0") or hostname.startswith(
+            "192.168."
+        )
+        if not is_local:
+            self._emit("scan_log", {"text": f"Enumeration DNS de {hostname}..."})
+            dns_result = _safe_invoke(dns_enum, {"target": self.target_url}, fallback=[])
+            subdomain_count = len(dns_result) if isinstance(dns_result, list) else 0
+            self._emit("scan_log", {"text": f"DNS: {subdomain_count} sous-domaines trouves"})
+        else:
+            self._emit("scan_log", {"text": "DNS: ignore (cible locale)"})
+
+        # 8. Form analysis
         self._emit("scan_log", {"text": "Analyse des formulaires..."})
         forms = self._analyze_forms(endpoints)
         for form in forms:
             self._emit("form", form)
             time.sleep(0.1)
-        self._emit("scan_log", {"text": f"{len(forms)} formulaires trouves"})
+        self._emit("scan_log", {"text": f"Formulaires: {len(forms)} trouves"})
+
+        self._emit("scan_log", {"text": "Fallback termine — compilation des resultats..."})
 
         self.scan_result = ScanResult(
             target=self.target_url,

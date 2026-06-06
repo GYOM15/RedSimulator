@@ -128,6 +128,10 @@ class AttackExecutor:
         After each test, records the result in the payload feedback tracker
         for cross-session learning.
 
+        Implements early-stop: when ``settings.early_stop_threshold`` consecutive
+        responses have the same (status, body-length, success) signature, the
+        remaining payloads are skipped to save time and API calls.
+
         Args:
             vector: The attack vector to test.
             payloads: List of payload strings to try.
@@ -139,17 +143,19 @@ class AttackExecutor:
         handler = self._handlers.get(vector.attack_type.value)
         if handler is None:
             logger.warning(
-                "Aucun handler pour le type d'attaque '%s' (vecteur %s). Ignore.",
+                "Aucun handler pour le type d'attaque '%s' (vecteur %s). "
+                "Type non supporte — vecteur ignore.",
                 vector.attack_type.value,
                 vector.id,
             )
             return [], 0, 0
 
         logger.info(
-            "Vecteur %s (%s) -> handler %s",
+            "Vecteur %s (%s) -> handler %s | %d payloads a tester",
             vector.id,
             vector.attack_type.value,
             type(handler).__name__,
+            len(payloads),
         )
 
         # Determine the primary technology for feedback recording
@@ -160,6 +166,11 @@ class AttackExecutor:
         results: list[SingleAttackResult] = []
         total = 0
         success_count = 0
+
+        # Early-stop state
+        max_identical = settings.early_stop_threshold
+        consecutive_identical = 0
+        last_response_sig: tuple[int, int, bool] | None = None
 
         for payload in payloads:
             total += 1
@@ -176,8 +187,37 @@ class AttackExecutor:
                 elapsed_ms = (time.monotonic() - start_time) * 1000
 
                 results.append(result)
+
+                # Check for redundant responses (early-stop)
+                if max_identical > 0:
+                    response_sig = (
+                        result.http_status,
+                        len(result.response_snippet),
+                        result.success,
+                    )
+                    if response_sig == last_response_sig:
+                        consecutive_identical += 1
+                        if consecutive_identical >= max_identical:
+                            remaining = len(payloads) - total
+                            logger.info(
+                                "Early-stop: %d reponses identiques consecutives sur %s, "
+                                "%d payloads restants ignores",
+                                max_identical,
+                                vector.id,
+                                remaining,
+                            )
+                            break
+                    else:
+                        consecutive_identical = 0
+                    last_response_sig = response_sig
+
                 if result.success:
                     success_count += 1
+                    logger.info(
+                        "SUCCESS sur %s avec payload: %s",
+                        vector.target_endpoint,
+                        payload[:50],
+                    )
 
                 # Feed response data to the adaptive rate limiter
                 if self._adaptive_enabled:
@@ -196,6 +236,16 @@ class AttackExecutor:
                         "Failed to record feedback for payload %s",
                         payload[:50],
                     )
+
+                # Periodic progress log every 5 payloads
+                if total % 5 == 0:
+                    logger.info(
+                        "Progression %s: %d/%d testes, %d succes",
+                        vector.id,
+                        total,
+                        len(payloads),
+                        success_count,
+                    )
             except Exception:
                 logger.exception(
                     "Erreur lors du test du vecteur %s avec payload %s",
@@ -206,6 +256,13 @@ class AttackExecutor:
                 if self._adaptive_enabled:
                     self.rate_limiter.record_error()
 
+        logger.info(
+            "Vecteur %s termine: %d/%d testes, %d succes",
+            vector.id,
+            total,
+            len(payloads),
+            success_count,
+        )
         return results, total, success_count
 
     @logged
@@ -240,10 +297,20 @@ class AttackExecutor:
             payload_map[gp.vector_id].append(gp.original)
             payload_map[gp.vector_id].extend(gp.variants)
 
-        for vector in attack_plan.vectors:
+        num_vectors = len(attack_plan.vectors)
+        for vec_idx, vector in enumerate(attack_plan.vectors, 1):
             payloads = payload_map.get(vector.id, vector.base_payloads)
             if not payloads:
                 payloads = vector.base_payloads
+
+            logger.info(
+                "Vecteur %d/%d: %s sur %s — %d payloads",
+                vec_idx,
+                num_vectors,
+                vector.attack_type.value,
+                vector.target_endpoint,
+                len(payloads),
+            )
 
             results, vec_total, vec_success = self._execute_vector(
                 vector,
@@ -253,6 +320,16 @@ class AttackExecutor:
             all_results.extend(results)
             total += vec_total
             success_count += vec_success
+
+            logger.info(
+                "Vecteur %d/%d termine: %d testes, %d succes (cumul: %d/%d)",
+                vec_idx,
+                num_vectors,
+                vec_total,
+                vec_success,
+                success_count,
+                total,
+            )
 
         logger.info("Termine: %d tentatives, %d succes", total, success_count)
 

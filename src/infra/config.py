@@ -173,6 +173,10 @@ class Settings(BaseSettings):
         default=5.0,
         description="Maximum delay between requests (seconds) for adaptive rate limiting.",
     )
+    early_stop_threshold: int = Field(
+        default=3,
+        description="Stop testing a vector after N consecutive identical responses (0 to disable).",
+    )
 
     # ------------------------------------------------------------------
     # Validation settings

@@ -26,6 +26,7 @@ export default function App() {
 
   const {
     phase, completedPhases, activeView, setActiveView,
+    userNavigated,
     showChat, setShowChat, target, setTarget,
     useFixtures, setUseFixtures, elapsed, pipelineDone,
     scanLogs, agentSteps, scanStats, endpoints, ports,
@@ -62,12 +63,26 @@ export default function App() {
   const viewTitle = () => {
     if (showProxy) return "Proxy MITM — Interception";
     if (showChat) return "Chatbot RAG";
-    const labels = { scanning: "Scanner — Reconnaissance", passive: "Scan Passif — Decouvertes", expert: "Systeme Expert — Analyse", generator: "Generateur — Mutations", attacking: "Executeur — Attaques", validation: "Validation — Confiance", reporting: "Rapporteur — Generation", summary: "Recapitulatif" };
+    const labels = {
+      scanning: "Scanner — Reconnaissance",
+      passive: "Scan Passif — Decouvertes",
+      expert: "Systeme Expert — Analyse",
+      generator: "Generateur — Mutations",
+      attacking: "Executeur — Attaques",
+      validation: "Validation — Confiance",
+      reporting: "Rapporteur — Generation",
+      summary: "Recapitulatif",
+    };
     return labels[activeView] || "";
   };
 
   return (
-    <div style={{ background: "#09090f", color: "#fff", minHeight: "100vh", fontFamily: "'SF Mono', 'Fira Code', Consolas, monospace" }}>
+    <div style={{
+      background: "#09090f", color: "#fff",
+      height: "100vh", display: "flex", flexDirection: "column",
+      fontFamily: "'SF Mono', 'Fira Code', Consolas, monospace",
+      overflow: "hidden",
+    }}>
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
@@ -76,17 +91,30 @@ export default function App() {
         ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
       `}</style>
 
-      {/* Header */}
-      <div style={{ borderBottom: "1px solid #1a1a2e", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      {/* Header — fixed, does not scroll with content */}
+      <div style={{
+        borderBottom: "1px solid #1a1a2e", padding: "12px 24px",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        flexShrink: 0,
+      }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 10, height: 10, borderRadius: "50%", background: phase !== "idle" && !pipelineDone ? "#e53935" : pipelineDone ? "#2e7d32" : "#555", animation: phase !== "idle" && !pipelineDone ? "pulse 1.5s infinite" : "none" }} />
+          <div style={{
+            width: 10, height: 10, borderRadius: "50%",
+            background: phase !== "idle" && !pipelineDone ? "#e53935" : pipelineDone ? "#2e7d32" : "#555",
+            animation: phase !== "idle" && !pipelineDone ? "pulse 1.5s infinite" : "none",
+          }} />
           <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: 2, color: "#e53935" }}>RED</span>
           <span style={{ fontSize: 18, fontWeight: 300, letterSpacing: 2 }}>SIMULATOR</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 12, color: "#666" }}>
           {phase !== "idle" && <span>{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}</span>}
           {phase !== "idle" && <span>{target}</span>}
-          {/* LLM status + settings gear in header */}
+          {/* Viewing indicator when user navigated away from running phase */}
+          {userNavigated && !pipelineDone && phase !== "idle" && activeView !== phase && (
+            <span style={{ fontSize: 10, color: "#ffa726", padding: "2px 8px", background: "#1a1a2e", borderRadius: 4 }}>
+              Visualisation: {activeView}
+            </span>
+          )}
           <button onClick={() => setShowSettings(true)} style={{
             background: "none", border: "1px solid #333", borderRadius: 6,
             padding: "4px 10px", color: "#888", fontSize: 11, cursor: "pointer",
@@ -104,7 +132,10 @@ export default function App() {
 
       {/* Idle */}
       {phase === "idle" && (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "calc(100vh - 50px)", gap: 24 }}>
+        <div style={{
+          display: "flex", flexDirection: "column", alignItems: "center",
+          justifyContent: "center", flex: 1, gap: 24,
+        }}>
           <div style={{ fontSize: 56, fontWeight: 900, letterSpacing: 6, color: "#e53935", animation: "glow 3s infinite" }}>
             RED<span style={{ color: "#fff", fontWeight: 200 }}>SIMULATOR</span>
           </div>
@@ -112,8 +143,8 @@ export default function App() {
           <div style={{ marginTop: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <input value={target} onChange={e => setTarget(e.target.value)}
-                style={{ background: "#111", border: "1px solid #333", borderRadius: 8, padding: "12px 20px", color: "#fff", fontSize: 14, minWidth: 300, outline: "none" }} />
-              <button onClick={run} style={{ background: "linear-gradient(135deg, #e53935, #c62828)", border: "none", borderRadius: 8, padding: "12px 28px", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", letterSpacing: 1 }}>
+                style={{ background: "#111", border: "1px solid #333", borderRadius: 8, padding: "12px 20px", color: "#fff", fontSize: 14, minWidth: 300, outline: "none", fontFamily: "inherit" }} />
+              <button onClick={run} style={{ background: "linear-gradient(135deg, #e53935, #c62828)", border: "none", borderRadius: 8, padding: "12px 28px", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", letterSpacing: 1, fontFamily: "inherit" }}>
                 LANCER
               </button>
             </div>
@@ -127,23 +158,44 @@ export default function App() {
 
       {/* Running */}
       {phase !== "idle" && (
-        <div style={{ display: "flex", height: "calc(100vh - 50px)" }}>
-          <Sidebar currentPhase={phase} completedPhases={completedPhases} activeView={showProxy ? "proxy" : showChat ? "chat" : activeView}
+        <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+          <Sidebar
+            currentPhase={phase}
+            completedPhases={completedPhases}
+            activeView={showProxy ? "proxy" : showChat ? "chat" : activeView}
             onSelectView={(id) => { setShowProxy(false); setShowChat(false); setActiveView(id); }}
-            pipelineDone={pipelineDone} onReset={reset}
+            pipelineDone={pipelineDone}
+            onReset={reset}
             onOpenChat={() => { setShowProxy(false); setShowChat(true); }}
             onOpenProxy={() => { setShowChat(false); setShowProxy(true); }}
             proxyRunning={proxyRunning}
             onOpenSettings={() => setShowSettings(true)}
-            llmConfig={llmConfig} />
+            llmConfig={llmConfig}
+          />
 
-          <div style={{ flex: 1, padding: 24, overflow: "hidden" }}>
-            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{
+            flex: 1, padding: 24, minHeight: 0,
+            display: "flex", flexDirection: "column", overflow: "hidden",
+          }}>
+            {/* View title bar */}
+            <div style={{
+              fontSize: 18, fontWeight: 700, marginBottom: 16,
+              display: "flex", alignItems: "center", gap: 8,
+              flexShrink: 0,
+            }}>
               {viewTitle()}
-              {!pipelineDone && phase !== "idle" && <span style={{ animation: "pulse 1.5s infinite", fontSize: 10, color: "#e53935", marginLeft: 8 }}>EN COURS</span>}
-              {pipelineDone && !showChat && <span style={{ fontSize: 10, color: "#2e7d32", marginLeft: 8 }}>TERMINE</span>}
+              {!pipelineDone && phase !== "idle" && (
+                <span style={{ animation: "pulse 1.5s infinite", fontSize: 10, color: "#e53935", marginLeft: 8 }}>EN COURS</span>
+              )}
+              {pipelineDone && !showChat && (
+                <span style={{ fontSize: 10, color: "#2e7d32", marginLeft: 8 }}>TERMINE</span>
+              )}
             </div>
-            {viewContent()}
+
+            {/* View content — fills remaining space */}
+            <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+              {viewContent()}
+            </div>
           </div>
         </div>
       )}
