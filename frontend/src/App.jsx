@@ -19,6 +19,7 @@ import ReportView from "./components/ReportView";
 import ChatView from "./components/ChatView";
 import SummaryView from "./components/SummaryView";
 import ProxyView from "./components/ProxyView";
+import PentestView from "./components/PentestView";
 import SettingsPanel from "./components/SettingsPanel";
 
 export default function App() {
@@ -39,6 +40,11 @@ export default function App() {
     // Proxy
     proxyRunning, proxyAvailable, proxyStatus, proxyFlows,
     startProxy, stopProxy, feedProxy, replayFlow, clearProxyFlows,
+    // Pentester agent
+    pentestMode, setPentestMode,
+    pentestRunning, pentestPhase, pentestReasoning,
+    pentestActions, pentestFindings, pentestResult,
+    pentestDone, runPentest, resetPentest,
   } = pipeline;
 
   const [showProxy, setShowProxy] = useState(false);
@@ -47,6 +53,7 @@ export default function App() {
   const viewContent = () => {
     if (showProxy) return <ProxyView proxyStatus={proxyStatus} flows={proxyFlows} onStart={startProxy} onStop={stopProxy} onReplay={replayFlow} onFeed={feedProxy} onClear={clearProxyFlows} proxyAvailable={proxyAvailable} />;
     if (showChat) return <ChatView />;
+    if (activeView === "pentest") return <PentestView reasoning={pentestReasoning} actions={pentestActions} findings={pentestFindings} result={pentestResult} pentestPhase={pentestPhase} pentestRunning={pentestRunning} pentestDone={pentestDone} />;
     if (pipelineDone && activeView === "summary") return <SummaryView scanStats={scanStats} vectors={vectors} payloadCount={payloads.length} attackStats={attackStats} />;
     switch (activeView) {
       case "scanning": return <ScannerView logs={scanLogs} agentSteps={agentSteps} endpoints={endpoints} ports={ports} techs={techs} headers={missingHeaders} forms={forms} stats={scanStats} />;
@@ -72,6 +79,7 @@ export default function App() {
       validation: "Validation — Confiance",
       reporting: "Rapporteur — Generation",
       summary: "Recapitulatif",
+      pentest: "Pentester Autonome — Agent IA",
     };
     return labels[activeView] || "";
   };
@@ -100,8 +108,8 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{
             width: 10, height: 10, borderRadius: "50%",
-            background: phase !== "idle" && !pipelineDone ? "#e53935" : pipelineDone ? "#2e7d32" : "#555",
-            animation: phase !== "idle" && !pipelineDone ? "pulse 1.5s infinite" : "none",
+            background: pentestRunning ? "#ab47bc" : (phase !== "idle" && !pipelineDone) ? "#e53935" : (pipelineDone || pentestDone) ? "#2e7d32" : "#555",
+            animation: (pentestRunning || (phase !== "idle" && !pipelineDone)) ? "pulse 1.5s infinite" : "none",
           }} />
           <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: 2, color: "#e53935" }}>RED</span>
           <span style={{ fontSize: 18, fontWeight: 300, letterSpacing: 2 }}>SIMULATOR</span>
@@ -131,7 +139,7 @@ export default function App() {
       </div>
 
       {/* Idle */}
-      {phase === "idle" && (
+      {phase === "idle" && !pentestRunning && !pentestDone && (
         <div style={{
           display: "flex", flexDirection: "column", alignItems: "center",
           justifyContent: "center", flex: 1, gap: 24,
@@ -145,19 +153,32 @@ export default function App() {
               <input value={target} onChange={e => setTarget(e.target.value)}
                 style={{ background: "#111", border: "1px solid #333", borderRadius: 8, padding: "12px 20px", color: "#fff", fontSize: 14, minWidth: 300, outline: "none", fontFamily: "inherit" }} />
               <button onClick={run} style={{ background: "linear-gradient(135deg, #e53935, #c62828)", border: "none", borderRadius: 8, padding: "12px 28px", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", letterSpacing: 1, fontFamily: "inherit" }}>
-                LANCER
+                PIPELINE
+              </button>
+              <button onClick={runPentest} style={{
+                background: "linear-gradient(135deg, #ab47bc, #7b1fa2)",
+                border: "none", borderRadius: 8, padding: "12px 28px",
+                color: "#fff", fontSize: 14, fontWeight: 700,
+                cursor: "pointer", letterSpacing: 1, fontFamily: "inherit",
+              }}>
+                PENTEST
               </button>
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#666", cursor: "pointer" }}>
-              <input type="checkbox" checked={useFixtures} onChange={e => setUseFixtures(e.target.checked)} style={{ accentColor: "#e53935" }} />
-              Mode fixtures (donnees simulees)
-            </label>
+            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#666", cursor: "pointer" }}>
+                <input type="checkbox" checked={useFixtures} onChange={e => setUseFixtures(e.target.checked)} style={{ accentColor: "#e53935" }} />
+                Mode fixtures (donnees simulees)
+              </label>
+              <span style={{ fontSize: 11, color: "#444" }}>
+                PIPELINE = scan + exploit sequentiel | PENTEST = agent autonome
+              </span>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Running */}
-      {phase !== "idle" && (
+      {/* Running (pipeline or pentest) */}
+      {(phase !== "idle" || pentestRunning || pentestDone) && (
         <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
           <Sidebar
             currentPhase={phase}
@@ -165,12 +186,15 @@ export default function App() {
             activeView={showProxy ? "proxy" : showChat ? "chat" : activeView}
             onSelectView={(id) => { setShowProxy(false); setShowChat(false); setActiveView(id); }}
             pipelineDone={pipelineDone}
-            onReset={reset}
+            onReset={() => { reset(); resetPentest(); }}
             onOpenChat={() => { setShowProxy(false); setShowChat(true); }}
             onOpenProxy={() => { setShowChat(false); setShowProxy(true); }}
             proxyRunning={proxyRunning}
             onOpenSettings={() => setShowSettings(true)}
             llmConfig={llmConfig}
+            pentestRunning={pentestRunning}
+            pentestDone={pentestDone}
+            pentestFindings={pentestFindings}
           />
 
           <div style={{
@@ -184,10 +208,10 @@ export default function App() {
               flexShrink: 0,
             }}>
               {viewTitle()}
-              {!pipelineDone && phase !== "idle" && (
-                <span style={{ animation: "pulse 1.5s infinite", fontSize: 10, color: "#e53935", marginLeft: 8 }}>EN COURS</span>
+              {((!pipelineDone && phase !== "idle") || pentestRunning) && (
+                <span style={{ animation: "pulse 1.5s infinite", fontSize: 10, color: pentestRunning ? "#ab47bc" : "#e53935", marginLeft: 8 }}>EN COURS</span>
               )}
-              {pipelineDone && !showChat && (
+              {(pipelineDone || pentestDone) && !showChat && (
                 <span style={{ fontSize: 10, color: "#2e7d32", marginLeft: 8 }}>TERMINE</span>
               )}
             </div>

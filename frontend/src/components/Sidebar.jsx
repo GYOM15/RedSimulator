@@ -9,7 +9,7 @@
 
 import { STEPS } from "../styles/theme";
 
-export default function Sidebar({ currentPhase, completedPhases, activeView, onSelectView, pipelineDone, onReset, onOpenChat, onOpenProxy, proxyRunning, onOpenSettings, llmConfig }) {
+export default function Sidebar({ currentPhase, completedPhases, activeView, onSelectView, pipelineDone, onReset, onOpenChat, onOpenProxy, proxyRunning, onOpenSettings, llmConfig, pentestRunning, pentestDone, pentestFindings }) {
   return (
     <div style={{
       width: 220, borderRight: "1px solid #1e1e2e", padding: "16px 12px",
@@ -22,6 +22,61 @@ export default function Sidebar({ currentPhase, completedPhases, activeView, onS
       }}>
         Pipeline
       </div>
+
+      {/* Pentest mode indicator */}
+      {(pentestRunning || pentestDone) && (
+        <div
+          onClick={() => onSelectView("pentest")}
+          style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "10px 12px", marginBottom: 12,
+            borderRadius: 8, cursor: "pointer",
+            background: activeView === "pentest" ? "#1a1a2e" : "transparent",
+            borderLeft: activeView === "pentest"
+              ? "3px solid #ab47bc"
+              : pentestDone
+                ? "3px solid #2e7d32"
+                : "3px solid #ab47bc",
+            border: `1px solid ${pentestRunning ? "#ab47bc40" : pentestDone ? "#2e7d3240" : "#1a1a2e"}`,
+          }}
+        >
+          <div style={{
+            width: 8, height: 8, borderRadius: "50%",
+            background: pentestDone ? "#2e7d32" : "#ab47bc",
+            animation: pentestRunning ? "pulse 1.5s infinite" : "none",
+          }} />
+          <div style={{ flex: 1 }}>
+            <div style={{
+              fontSize: 13, fontWeight: 700,
+              color: pentestRunning ? "#ab47bc" : pentestDone ? "#aaa" : "#555",
+            }}>
+              Pentester
+            </div>
+            <div style={{ fontSize: 10, color: "#444" }}>Agent autonome</div>
+          </div>
+          {pentestDone && <span style={{ color: "#2e7d32", fontSize: 14 }}>&#10003;</span>}
+          {pentestRunning && (
+            <span style={{ fontSize: 9, color: "#ab47bc", fontWeight: 700, animation: "pulse 1.5s infinite" }}>
+              &#9679;
+            </span>
+          )}
+          {pentestFindings && pentestFindings.length > 0 && (
+            <span style={{
+              fontSize: 10, fontWeight: 800, color: "#e53935",
+              background: "#e5393520", padding: "1px 6px", borderRadius: 4,
+            }}>
+              {pentestFindings.length}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Pipeline steps separator */}
+      {(pentestRunning || pentestDone) && (
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "#333", marginBottom: 8, paddingLeft: 4 }}>
+          PIPELINE
+        </div>
+      )}
 
       {STEPS.map((s) => {
         const isRunning = s.id === currentPhase && !pipelineDone;

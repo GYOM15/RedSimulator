@@ -40,6 +40,17 @@ export default function usePipeline() {
   // Validation confidence results
   const [validationResults, setValidationResults] = useState([]);
 
+  // Pentester agent state
+  const [pentestMode, setPentestMode] = useState(false);
+  const [pentestRunning, setPentestRunning] = useState(false);
+  const [pentestPhase, setPentestPhase] = useState("");
+  const [pentestReasoning, setPentestReasoning] = useState([]);
+  const [pentestActions, setPentestActions] = useState([]);
+  const [pentestFindings, setPentestFindings] = useState([]);
+  const [pentestResult, setPentestResult] = useState(null);
+  const [pentestDone, setPentestDone] = useState(false);
+  const pentestEsRef = useRef(null);
+
   // LLM config state
   const [llmConfig, setLlmConfig] = useState(null);
 
@@ -67,6 +78,92 @@ export default function usePipeline() {
     setRules([]); setVectors([]); setPayloads([]); setAttacks([]); setAttackStats({}); setReportText("");
     setPassiveFindings([]); setValidationResults([]);
   };
+
+  const resetPentest = useCallback(() => {
+    if (pentestEsRef.current) {
+      pentestEsRef.current.close();
+      pentestEsRef.current = null;
+    }
+    setPentestRunning(false);
+    setPentestPhase("");
+    setPentestReasoning([]);
+    setPentestActions([]);
+    setPentestFindings([]);
+    setPentestResult(null);
+    setPentestDone(false);
+  }, []);
+
+  const runPentest = useCallback(() => {
+    resetPentest();
+    setPentestRunning(true);
+    setPentestPhase("recon");
+    setPhase("pentest");
+    setActiveView("pentest");
+    timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+
+    const url = `${API}/pentest/stream?target=${encodeURIComponent(target)}`;
+    const src = new EventSource(url);
+    pentestEsRef.current = src;
+
+    src.addEventListener("pentest_start", (e) => {
+      const d = JSON.parse(e.data);
+      setPentestReasoning(prev => [...prev, { type: "system", text: `Starting pentest against ${d.target}...`, phase: "recon" }]);
+    });
+
+    src.addEventListener("pentest_phase", (e) => {
+      const d = JSON.parse(e.data);
+      setPentestPhase(d.phase);
+      setPentestReasoning(prev => [...prev, { type: "phase_change", text: `Phase: ${d.phase.toUpperCase()}`, phase: d.phase }]);
+    });
+
+    src.addEventListener("agent_reasoning", (e) => {
+      const d = JSON.parse(e.data);
+      setPentestReasoning(prev => [...prev, d]);
+    });
+
+    src.addEventListener("agent_action", (e) => {
+      const d = JSON.parse(e.data);
+      setPentestActions(prev => [...prev, d]);
+      setPentestReasoning(prev => [...prev, { type: "action", text: `Calling ${d.tool}(${JSON.stringify(d.args).substring(0, 100)})`, phase: d.phase }]);
+    });
+
+    src.addEventListener("agent_tool_result", (e) => {
+      const d = JSON.parse(e.data);
+      setPentestReasoning(prev => [...prev, { type: "tool_result", text: `${d.tool}: ${(d.content || "").substring(0, 300)}`, phase: d.phase }]);
+    });
+
+    src.addEventListener("agent_finding", (e) => {
+      const d = JSON.parse(e.data);
+      setPentestFindings(prev => [...prev, d]);
+      setPentestReasoning(prev => [...prev, { type: "finding", text: `[${d.severity}] ${d.type} at ${d.endpoint}: ${(d.evidence || "").substring(0, 150)}`, phase: "exploitation" }]);
+    });
+
+    src.addEventListener("pentest_result", (e) => {
+      const d = JSON.parse(e.data);
+      setPentestResult(d);
+    });
+
+    src.addEventListener("pentest_error", (e) => {
+      const d = JSON.parse(e.data);
+      setPentestReasoning(prev => [...prev, { type: "error", text: d.error || d.message || "Unknown error", phase: "error" }]);
+    });
+
+    src.addEventListener("pentest_done", () => {
+      setPentestDone(true);
+      setPentestRunning(false);
+      clearInterval(timerRef.current);
+      src.close();
+      pentestEsRef.current = null;
+    });
+
+    src.addEventListener("error", () => {
+      src.close();
+      pentestEsRef.current = null;
+      clearInterval(timerRef.current);
+      setPentestRunning(false);
+      setPentestReasoning(prev => [...prev, { type: "error", text: "Connection lost to server. Check that the backend is running on port 8080.", phase: "error" }]);
+    });
+  }, [target, resetPentest]);
 
   const run = useCallback(() => {
     reset();
@@ -327,5 +424,18 @@ export default function usePipeline() {
     feedProxy,
     replayFlow,
     clearProxyFlows,
+
+    // Pentester agent
+    pentestMode,
+    setPentestMode,
+    pentestRunning,
+    pentestPhase,
+    pentestReasoning,
+    pentestActions,
+    pentestFindings,
+    pentestResult,
+    pentestDone,
+    runPentest,
+    resetPentest,
   };
 }

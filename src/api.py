@@ -664,6 +664,109 @@ async def run_campaign(req: CampaignRequest):
     return EventSourceResponse(_campaign_sse())
 
 
+# ---------------------------------------------------------------------------
+# Pentester agent SSE endpoint
+# ---------------------------------------------------------------------------
+
+
+async def _run_pentest(target: str):
+    """SSE generator for the autonomous pentester agent."""
+    yield _sse(
+        "pentest_start",
+        {
+            "target": target,
+            "message": "Starting autonomous pentest agent...",
+        },
+    )
+    await asyncio.sleep(0.2)
+
+    # Queue to bridge synchronous agent callbacks to async SSE
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
+
+    def on_event(event_type: str, data: dict):
+        """Callback called from the agent thread."""
+        loop.call_soon_threadsafe(queue.put_nowait, (event_type, data))
+
+    from src.pentester.agent import PentesterAgent
+
+    agent = PentesterAgent(target, on_event=on_event)
+
+    # Run the agent in a background thread to avoid blocking async
+    result_container = [None]
+    error_container = [None]
+
+    def run_pentest():
+        try:
+            result_container[0] = agent.run(max_iterations=30)
+        except Exception as e:
+            error_container[0] = e
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, ("__done__", {}))
+
+    thread = threading.Thread(target=run_pentest, daemon=True)
+    thread.start()
+
+    # Stream events from the queue
+    while True:
+        event_type, data = await queue.get()
+        if event_type == "__done__":
+            break
+        yield _sse(event_type, data)
+        await asyncio.sleep(0.05)
+
+    if error_container[0]:
+        yield _sse("pentest_error", _safe_error_payload("pentest", error_container[0]))
+        return
+
+    result = result_container[0]
+    if result:
+        # Send the final result
+        yield _sse(
+            "pentest_result",
+            {
+                "findings": result.get("findings", []),
+                "attack_chains": result.get("attack_chains", []),
+                "recommendations": result.get("recommendations", []),
+                "metadata": result.get("metadata", {}),
+            },
+        )
+
+    yield _sse(
+        "pentest_done",
+        {
+            "message": "Autonomous pentest complete",
+            "findings_count": len(result.get("findings", [])) if result else 0,
+        },
+    )
+
+
+@app.get("/api/pentest/stream")
+async def pentest_stream(target: str = Query(default="http://localhost:3000")):
+    """Run the autonomous pentester agent with SSE streaming.
+
+    The agent autonomously performs reconnaissance, vulnerability analysis,
+    exploitation, post-exploitation, and reporting. All reasoning is
+    streamed in real-time.
+
+    Events emitted:
+        - pentest_start: Agent is starting
+        - pentest_phase: Phase change (recon, exploitation, post-exploit, reporting)
+        - agent_reasoning: Agent's thinking (observation, decision, finding)
+        - agent_action: Tool being called with arguments
+        - agent_finding: Confirmed vulnerability
+        - agent_tool_result: Tool execution result
+        - pentest_result: Final report with all findings
+        - pentest_done: Agent finished
+        - pentest_error: Error occurred
+    """
+    error = _validate_target_url(target)
+    if error:
+        logger.warning("Rejected pentest target %r: %s", target, error)
+        return JSONResponse(status_code=400, content={"error": "INVALID_TARGET", "message": error})
+    return EventSourceResponse(_run_pentest(target))
+
+
 class ChatRequest(BaseModel):
     question: str
 
