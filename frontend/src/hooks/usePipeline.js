@@ -12,7 +12,7 @@ export default function usePipeline() {
   const [activeView, setActiveView] = useState("scanning");
   const [showChat, setShowChat] = useState(false);
   const [target, setTarget] = useState("http://localhost:3000");
-  const [useFixtures, setUseFixtures] = useState(true);
+  const [useFixtures, setUseFixtures] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [pipelineDone, setPipelineDone] = useState(false);
   const timerRef = useRef(null);
@@ -111,7 +111,12 @@ export default function usePipeline() {
     src.addEventListener("pipeline_done", () => {
       setPipelineDone(true); setActiveView("summary"); clearInterval(timerRef.current); src.close();
     });
-    src.addEventListener("error", () => { src.close(); });
+    src.addEventListener("error", () => {
+      src.close();
+      clearInterval(timerRef.current);
+      setPhase("idle");
+      setScanLogs(prev => [...prev, "Erreur: connexion au serveur perdue. Verifiez que le backend est demarre sur le port 8080."]);
+    });
   }, [target, useFixtures]);
 
   // ---------------------------------------------------------------------------
@@ -120,7 +125,7 @@ export default function usePipeline() {
 
   const fetchLlmConfig = useCallback(async () => {
     try {
-      const resp = await fetch(`${API}/api/settings/llm`);
+      const resp = await fetch(`${API}/settings/llm`);
       if (resp.ok) {
         const data = await resp.json();
         setLlmConfig(data);
@@ -131,7 +136,7 @@ export default function usePipeline() {
   }, []);
 
   const saveLlmConfig = useCallback(async (config) => {
-    const resp = await fetch(`${API}/api/settings/llm`, {
+    const resp = await fetch(`${API}/settings/llm`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(config),
@@ -145,7 +150,7 @@ export default function usePipeline() {
   }, []);
 
   const clearLlmConfig = useCallback(async () => {
-    const resp = await fetch(`${API}/api/settings/llm`, { method: "DELETE" });
+    const resp = await fetch(`${API}/settings/llm`, { method: "DELETE" });
     if (!resp.ok) throw new Error("Failed to clear LLM configuration");
     await fetchLlmConfig();
   }, [fetchLlmConfig]);

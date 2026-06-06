@@ -36,10 +36,20 @@ existing tooling and CI secrets continue to work:
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import ClassVar
 
+from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolve .env path relative to the project root (2 levels up from this file)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_ENV_FILE = _PROJECT_ROOT / ".env"
+
+# Load .env BEFORE Settings is instantiated so that env vars like
+# ANTHROPIC_API_KEY and TARGET_URL are available via os.environ.
+load_dotenv(_ENV_FILE, override=True)
 
 
 class Settings(BaseSettings):
@@ -52,7 +62,7 @@ class Settings(BaseSettings):
     """
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         env_prefix="RS_",
         case_sensitive=False,

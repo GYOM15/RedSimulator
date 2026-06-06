@@ -1,12 +1,9 @@
-"""Orchestrateur de generation de variantes de payloads.
+"""Payload generation orchestrator.
 
-Tente d'abord la generation via LLM (Claude API), puis se rabat
-sur les mutations deterministes hors-ligne en cas d'echec ou
-d'absence de cle API.
-
-When a ``ScanResult`` is provided, the generator uses the contextual
-intelligence system to select payloads optimized for the target's
-technology stack, WAF, and database engine.
+When an LLM is available, generates targeted payloads per attack vector
+by giving the LLM full scan context (one LLM call per vector, not per
+payload). Falls back to offline mutations + payload database when no
+LLM is configured.
 """
 
 from __future__ import annotations
@@ -14,10 +11,11 @@ from __future__ import annotations
 from src.infra.config import settings
 from src.infra.decorators import logged, timed
 from src.infra.exceptions import LLMError
+from src.infra.llm import is_llm_available
 from src.infra.logging import get_logger
 from src.models import AttackPlan, GeneratedPayload, PayloadResult, ScanResult
 
-from .llm_mutator import mutate_with_llm
+from .llm_mutator import generate_payloads_for_vector
 from .offline_mutator import mutate_payload
 from .payload_db import payload_db
 
@@ -30,52 +28,16 @@ def generate_variants(
     attack_type: str = "sqli",
     n_variants: int = 5,
 ) -> list[str]:
-    """Genere des variantes d'un payload avec fallback automatique.
+    """Generate variants for a single payload (offline only).
 
-    Si une cle API Anthropic est configuree, utilise le LLM pour generer
-    des variantes intelligentes. En cas d'echec ou d'absence de cle,
-    se rabat sur les mutations deterministes hors-ligne.
-
-    Args:
-        base_payload: Payload de base a varier.
-        attack_type: Type d'attaque (sqli, xss, idor, path_traversal, etc.).
-        n_variants: Nombre de variantes a generer.
-
-    Returns:
-        Liste de variantes uniques differentes du payload de base.
+    This is the simple path — used when no scan context is available
+    or as a fallback. For context-aware generation, use generate_for_plan().
     """
-    # Tentative LLM si cle API disponible
-    if settings.anthropic_api_key:
-        try:
-            logger.info("Mode LLM: generation via Claude API")
-            variants = mutate_with_llm(
-                payload=base_payload,
-                attack_type=attack_type,
-                n_variants=n_variants,
-            )
-            if variants:
-                return variants
-            logger.warning("LLM n'a retourne aucune variante, fallback offline")
-        except (LLMError, Exception) as e:
-            logger.warning("Echec LLM (%s), fallback sur mutations offline", e)
-    else:
-        logger.info("Mode offline: pas de cle API Anthropic configuree")
-
-    # Fallback : mutations deterministes hors-ligne
-    variants = mutate_payload(
+    return mutate_payload(
         payload=base_payload,
         attack_type=attack_type,
         n_variants=n_variants,
     )
-
-    if not variants:
-        logger.warning(
-            "Aucune variante generee pour '%s' (type=%s)",
-            base_payload[:50],
-            attack_type,
-        )
-
-    return variants
 
 
 @logged
@@ -84,117 +46,153 @@ def generate_for_plan(
     attack_plan: AttackPlan,
     scan_result: ScanResult | None = None,
 ) -> PayloadResult:
-    """Genere des variantes de payloads pour un plan d'attaque complet.
+    """Generate payloads for an attack plan.
 
-    Parcourt chaque vecteur du plan et genere des variantes pour
-    chacun de ses payloads de base.
-
-    When a ``scan_result`` is provided, the contextual intelligence system
-    selects payloads optimized for the target's detected technologies,
-    WAF, and database engine. Payload explanations are passed to the LLM
-    mutator for smarter variant generation.
+    Strategy:
+    - If LLM is available + scan context: ONE LLM call per vector with
+      full context (pentester reasoning). The LLM generates targeted
+      payloads specific to the target's technology stack and defenses.
+    - If no LLM: use payload DB (context-aware selection) + offline mutations.
 
     Args:
-        attack_plan: Plan d'attaque contenant les vecteurs et payloads de base.
-        scan_result: Optional scan result for context-aware payload selection.
+        attack_plan: Attack plan with vectors from the expert system.
+        scan_result: Scan results for context-aware generation.
 
     Returns:
-        PayloadResult contenant tous les payloads generes.
+        PayloadResult with generated payloads for each vector.
     """
-    logger.info("=" * 60)
-    logger.info("Generation de variantes de payloads")
-    logger.info("=" * 60)
+    llm_available = is_llm_available()
+    has_context = scan_result is not None
 
-    # Extract technologies and raw headers from scan result if available
+    # Extract context for LLM and payload DB
     technologies: list[str] = []
+    missing_headers: list[str] = []
+    all_endpoints: list[dict] = []
     scan_headers: dict | None = None
-    if scan_result is not None:
+
+    if has_context:
         technologies = scan_result.technologies
-        # Build a raw header dict from the HeaderAnalysis model for WAF detection
+        missing_headers = scan_result.headers.missing_security_headers
+        all_endpoints = [
+            {
+                "path": ep.path,
+                "method": ep.method,
+                "auth_required": ep.auth_required,
+                "parameters": ep.parameters,
+            }
+            for ep in scan_result.endpoints
+        ]
         scan_headers = {}
         if scan_result.headers.server_info_leaked:
             scan_headers["server"] = "leaked"
-        logger.info(
-            "Scan context: %d technologies detected, headers available=%s",
-            len(technologies),
-            scan_headers is not None,
-        )
+
+    if llm_available and has_context:
+        logger.info("Mode: LLM pentester (context-aware, 1 call per vector)")
+    elif llm_available:
+        logger.info("Mode: LLM mutation (no scan context)")
+    else:
+        logger.info("Mode: offline mutations + payload DB")
 
     payloads: list[GeneratedPayload] = []
 
     for vector in attack_plan.vectors:
-        logger.info("--- Vecteur %s (%s) ---", vector.id, vector.attack_type.value)
-
-        # Use smart selector when scan context is available, otherwise fall back
-        if technologies or scan_headers:
-            intel_payloads = payload_db.select_for_target(
-                attack_type=vector.attack_type.value,
-                technologies=technologies,
-                headers=scan_headers,
-                limit=settings.max_payloads_per_vector,
-            )
-            db_payload_texts = [ip.text for ip in intel_payloads]
-
-            # Build explanation context for LLM mutation
-            explanation_context: dict[str, str] = {}
-            for ip in intel_payloads:
-                if ip.explanation:
-                    explanation_context[ip.text] = ip.explanation
-
-            logger.info(
-                "  Smart selector: %d payloads selected (%d with explanations)",
-                len(db_payload_texts),
-                len(explanation_context),
-            )
-        else:
-            # Legacy path: get payload texts without intelligence
-            intel_payloads_legacy = payload_db.get(
-                vector.attack_type.value,
-                limit=settings.max_payloads_per_vector,
-            )
-            db_payload_texts = [ip.text for ip in intel_payloads_legacy]
-            explanation_context = {}
-
-        all_base = list(dict.fromkeys(vector.base_payloads + db_payload_texts))
         logger.info(
-            "  Merged %d base + %d db payloads -> %d unique",
-            len(vector.base_payloads),
-            len(db_payload_texts),
-            len(all_base),
+            "Vector %s (%s) -> %s",
+            vector.id,
+            vector.attack_type.value,
+            vector.target_endpoint,
         )
 
-        for base_payload in all_base:
-            logger.info("  Base: %s", base_payload)
+        vector_payloads = _generate_for_vector(
+            attack_type=vector.attack_type.value,
+            target_endpoint=vector.target_endpoint,
+            target_fields=vector.target_fields,
+            base_payloads=vector.base_payloads,
+            rationale=vector.rationale,
+            technologies=technologies,
+            missing_headers=missing_headers,
+            all_endpoints=all_endpoints,
+            scan_headers=scan_headers,
+            llm_available=llm_available,
+            has_context=has_context,
+        )
 
-            # Pass explanation to LLM mutator for smarter variants
-            explanation = explanation_context.get(base_payload, "")
-            if explanation:
-                logger.debug("  Explanation context: %s", explanation[:100])
-
-            variants = generate_variants(
-                base_payload=base_payload,
-                attack_type=vector.attack_type.value,
-                n_variants=5,
-            )
-
-            for i, v in enumerate(variants):
-                logger.info("    Variante %d: %s", i + 1, v)
-
-            if not variants:
-                logger.warning("    (aucune variante generee)")
-
+        for p in vector_payloads:
             payloads.append(
                 GeneratedPayload(
                     vector_id=vector.id,
-                    original=base_payload,
-                    variants=variants,
+                    original=p,
+                    variants=[],
                 )
             )
 
+        logger.info("  -> %d payloads generated", len(vector_payloads))
+
     result = PayloadResult(payloads=payloads)
     logger.info(
-        "Generation terminee: %d payloads generes pour %d vecteurs",
+        "Generation complete: %d payloads for %d vectors",
         len(payloads),
         len(attack_plan.vectors),
     )
     return result
+
+
+def _generate_for_vector(
+    attack_type: str,
+    target_endpoint: str,
+    target_fields: list[str],
+    base_payloads: list[str],
+    rationale: list[str],
+    technologies: list[str],
+    missing_headers: list[str],
+    all_endpoints: list[dict],
+    scan_headers: dict | None,
+    llm_available: bool,
+    has_context: bool,
+) -> list[str]:
+    """Generate payloads for a single vector using the best available strategy."""
+    all_payloads: list[str] = []
+
+    # Strategy 1: LLM pentester (one call with full context)
+    if llm_available and has_context:
+        try:
+            llm_payloads = generate_payloads_for_vector(
+                attack_type=attack_type,
+                target_endpoint=target_endpoint,
+                target_fields=target_fields,
+                technologies=technologies,
+                missing_headers=missing_headers,
+                all_endpoints=all_endpoints,
+                rationale=rationale,
+                n_payloads=15,
+            )
+            all_payloads.extend(llm_payloads)
+            logger.info("  LLM pentester: %d payloads", len(llm_payloads))
+        except (LLMError, Exception) as e:
+            logger.warning("  LLM failed (%s), falling back to offline", e)
+
+    # Strategy 2: Payload DB (context-aware selection)
+    if technologies or scan_headers:
+        db_payloads = payload_db.select_for_target(
+            attack_type=attack_type,
+            technologies=technologies,
+            headers=scan_headers,
+            limit=settings.max_payloads_per_vector,
+        )
+        db_texts = [ip.text for ip in db_payloads]
+    else:
+        db_results = payload_db.get(attack_type, limit=settings.max_payloads_per_vector)
+        db_texts = [ip.text for ip in db_results]
+
+    # Strategy 3: Offline mutations on base payloads (only for injection types)
+    offline_payloads: list[str] = []
+    if attack_type in ("sqli", "xss", "command_injection", "path_traversal"):
+        for bp in base_payloads[:3]:
+            offline_payloads.extend(mutate_payload(bp, attack_type, n_variants=3))
+
+    # Merge all sources, deduplicate, preserve order
+    combined = list(dict.fromkeys(all_payloads + base_payloads + db_texts + offline_payloads))
+
+    # Cap total payloads per vector
+    max_total = settings.max_payloads_per_vector
+    return combined[:max_total]

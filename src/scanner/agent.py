@@ -311,15 +311,31 @@ class ReconAgent:
             shutdown()
 
     def _create_llm(self):
-        """Create the LLM instance based on the configured provider."""
-        provider = getattr(settings, "llm_provider", "anthropic").lower().strip()
+        """Create the LLM instance based on the configured provider.
+
+        Checks runtime config (set via API/Settings Panel) first,
+        then falls back to file-based settings (.env).
+        """
+        from src.infra.llm_config import llm_config
+
+        # Runtime config takes priority over file-based settings
+        runtime = llm_config.get_config()
+        if runtime.configured:
+            provider = runtime.provider.lower().strip()
+            model = runtime.model
+            api_key = runtime.api_key.get_secret_value() if runtime.api_key else ""
+            ollama_url = runtime.ollama_url or "http://localhost:11434"
+        else:
+            provider = getattr(settings, "llm_provider", "anthropic").lower().strip()
+            model = settings.llm_model
+            api_key = settings.anthropic_api_key or ""
+            ollama_url = getattr(settings, "ollama_url", "http://localhost:11434")
 
         if provider == "ollama":
             try:
                 from langchain_ollama import ChatOllama
 
-                ollama_model = getattr(settings, "ollama_model", "llama3.1")
-                ollama_url = getattr(settings, "ollama_url", "http://localhost:11434")
+                ollama_model = model or "llama3.1"
                 logger.info("Using Ollama LLM: %s at %s", ollama_model, ollama_url)
                 return ChatOllama(
                     model=ollama_model,
@@ -328,20 +344,20 @@ class ReconAgent:
                 )
             except ImportError:
                 logger.warning("langchain-ollama not installed, falling back to Anthropic")
-                # Fall through to Anthropic
 
-        # Default: Anthropic
-        if not settings.anthropic_api_key:
+        # Anthropic / OpenAI
+        if not api_key:
             logger.warning("No LLM API key configured, agent mode unavailable")
             return None
 
         from langchain_anthropic import ChatAnthropic
 
-        logger.info("Using Anthropic LLM: %s", settings.llm_model)
+        model = model or settings.llm_model
+        logger.info("Using Anthropic LLM: %s", model)
         return ChatAnthropic(
-            model=settings.llm_model,
+            model=model,
             temperature=settings.llm_temperature,
-            api_key=settings.anthropic_api_key,
+            api_key=api_key,
         )
 
     @retry(max_attempts=2, exceptions=(LLMError,))

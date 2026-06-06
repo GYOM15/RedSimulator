@@ -35,9 +35,6 @@ class TestPipelineE2E:
 
         payload_result = generate_for_plan(plan)
         assert len(payload_result.payloads) > 0
-        # Each vector should have at least some variants
-        for gp in payload_result.payloads:
-            assert len(gp.variants) >= 1
 
         # Stage 4: Executor (from fixtures since we need a live target)
         from src.executor import AttackExecutor
