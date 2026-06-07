@@ -669,6 +669,74 @@ async def run_campaign(req: CampaignRequest):
 # ---------------------------------------------------------------------------
 
 
+def _build_pentest_report(result: dict, target: str) -> str:
+    """Build a Markdown report from pentester agent findings."""
+    from datetime import datetime
+
+    findings = result.get("findings", [])
+    chains = result.get("attack_chains", [])
+    recs = result.get("recommendations", [])
+    meta = result.get("metadata", {})
+
+    sev_counts: dict[str, int] = {}
+    for f in findings:
+        sev = f.get("severity", "MEDIUM")
+        sev_counts[sev] = sev_counts.get(sev, 0) + 1
+
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+    lines = [
+        "# Penetration Test Report — RedSimulator",
+        "",
+        f"**Date:** {now}",
+        f"**Target:** {target}",
+        f"**Duration:** {meta.get('duration_seconds', 0):.0f}s",
+        f"**Iterations:** {meta.get('iterations', 0)}",
+        f"**Status:** {meta.get('status', 'unknown')}",
+        "",
+        "## Executive Summary",
+        "",
+        f"The autonomous pentester agent identified **{len(findings)} vulnerabilities**:",
+    ]
+
+    for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+        count = sev_counts.get(sev, 0)
+        if count:
+            lines.append(f"- **{sev}**: {count}")
+
+    lines.append("")
+    lines.append("## Findings")
+    lines.append("")
+    lines.append("| # | Type | Severity | Endpoint | Evidence |")
+    lines.append("|---|------|----------|----------|----------|")
+
+    for i, f in enumerate(findings, 1):
+        ftype = f.get("type", "unknown")
+        sev = f.get("severity", "MEDIUM")
+        ep = f.get("endpoint", "N/A")
+        evidence = f.get("evidence", "")[:80]
+        lines.append(f"| {i} | {ftype} | {sev} | `{ep}` | {evidence} |")
+
+    if chains:
+        lines.append("")
+        lines.append("## Attack Chains")
+        lines.append("")
+        for chain in chains:
+            if isinstance(chain, str):
+                lines.append(f"- {chain}")
+            elif isinstance(chain, dict):
+                lines.append(f"- **{chain.get('name', 'Chain')}**: {chain.get('description', '')}")
+
+    if recs:
+        lines.append("")
+        lines.append("## Recommendations")
+        lines.append("")
+        for rec in recs:
+            lines.append(f"- {rec}")
+
+    return "\n".join(lines)
+
+
 async def _run_pentest(target: str):
     """SSE generator for the autonomous pentester agent."""
     yield _sse(
@@ -698,7 +766,7 @@ async def _run_pentest(target: str):
 
     def run_pentest():
         try:
-            result_container[0] = agent.run(max_iterations=30)
+            result_container[0] = agent.run(max_iterations=80)
         except Exception as e:
             error_container[0] = e
         finally:
@@ -731,6 +799,31 @@ async def _run_pentest(target: str):
                 "metadata": result.get("metadata", {}),
             },
         )
+
+        # --- Build report and index into RAG + knowledge graph ---
+        yield _sse("pentest_phase", {"phase": "reporting"})
+        try:
+            report = _build_pentest_report(result, target)
+            _state.last_report = report
+
+            # Index into RAG with knowledge graph
+            try:
+                from src.reporter.rag import index_report
+
+                num_chunks = index_report(report)
+                logger.info("Pentest report indexed: %d chunks", num_chunks)
+                yield _sse(
+                    "agent_reasoning",
+                    {
+                        "type": "observation",
+                        "text": f"Report indexed into knowledge graph ({num_chunks} chunks). You can now ask questions about the findings via the chat.",
+                        "phase": "reporting",
+                    },
+                )
+            except Exception as e:
+                logger.warning("Failed to index pentest report: %s", e)
+        except Exception as e:
+            logger.warning("Failed to build pentest report: %s", e)
 
     yield _sse(
         "pentest_done",
