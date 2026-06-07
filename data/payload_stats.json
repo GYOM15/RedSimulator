@@ -1,6 +1,6 @@
 {
   "8da193366e1554c0": {
-    "total_uses": 13,
+    "total_uses": 15,
     "successes": 0,
     "by_technology": {
       "angular": {
@@ -8,7 +8,7 @@
         "successes": 0
       },
       "auth_bypass": {
-        "uses": 11,
+        "uses": 13,
         "successes": 0
       }
     }
@@ -70,7 +70,7 @@
     }
   },
   "bb1fb0facf769d73": {
-    "total_uses": 13,
+    "total_uses": 15,
     "successes": 0,
     "by_technology": {
       "angular": {
@@ -78,7 +78,7 @@
         "successes": 0
       },
       "auth_bypass": {
-        "uses": 11,
+        "uses": 13,
         "successes": 0
       }
     }
@@ -140,7 +140,7 @@
     }
   },
   "2bbbe3f67242a7ac": {
-    "total_uses": 13,
+    "total_uses": 15,
     "successes": 0,
     "by_technology": {
       "angular": {
@@ -148,7 +148,7 @@
         "successes": 0
       },
       "auth_bypass": {
-        "uses": 11,
+        "uses": 13,
         "successes": 0
       }
     }

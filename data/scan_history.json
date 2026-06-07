@@ -3,63 +3,6 @@
     "target": "http://localhost:3001",
     "scans": [
       {
-        "date": "2026-06-04T15:28:45.849951-04:00",
-        "endpoints_count": 28,
-        "endpoints": [
-          "/robots.txt",
-          "/.well-known/security.txt",
-          "/api/Users",
-          "/api/BasketItems",
-          "/api/SecurityAnswers",
-          "/api/Complaints",
-          "/api/Addresss",
-          "/api/Recycles",
-          "/api/Cards",
-          "/rest/repeat-notification",
-          "/rest/continue-code",
-          "/rest/user/authentication-details/",
-          "/rest/user/whoami",
-          "/rest/saveLoginIp",
-          "/rest/deluxe-membership",
-          "/api/Deliverys",
-          "/rest/image-captcha/",
-          "/rest/wallet/balance",
-          "/rest/continue-code-findIt",
-          "/rest/continue-code-fixIt",
-          "/rest/captcha",
-          "/api/SecurityQuestions",
-          "/api/Feedbacks",
-          "/api/Quantitys",
-          "/api/Products",
-          "/api/Challenges",
-          "/api/Hints",
-          "/rest/memories"
-        ],
-        "ports": [
-          3000,
-          8000,
-          5432,
-          6379,
-          8080
-        ],
-        "technologies": [
-          "Angular",
-          "Angular Material",
-          "Application 19.2.1",
-          "MongoDB",
-          "Socket.IO"
-        ],
-        "risk_score": 70,
-        "missing_headers": [
-          "Content-Security-Policy",
-          "Strict-Transport-Security",
-          "X-XSS-Protection",
-          "Referrer-Policy",
-          "Permissions-Policy"
-        ],
-        "forms_count": 0
-      },
-      {
         "date": "2026-06-04T15:30:36.201703-04:00",
         "endpoints_count": 28,
         "endpoints": [
@@ -552,6 +495,63 @@
           5432,
           8000,
           6379
+        ],
+        "technologies": [
+          "Angular",
+          "Angular Material",
+          "Application 19.2.1",
+          "MongoDB",
+          "Socket.IO"
+        ],
+        "risk_score": 70,
+        "missing_headers": [
+          "Content-Security-Policy",
+          "Strict-Transport-Security",
+          "X-XSS-Protection",
+          "Referrer-Policy",
+          "Permissions-Policy"
+        ],
+        "forms_count": 0
+      },
+      {
+        "date": "2026-06-07T01:09:18.901235-04:00",
+        "endpoints_count": 28,
+        "endpoints": [
+          "/.well-known/security.txt",
+          "/robots.txt",
+          "/api/Users",
+          "/api/BasketItems",
+          "/api/SecurityAnswers",
+          "/api/Complaints",
+          "/api/Recycles",
+          "/api/Addresss",
+          "/api/Cards",
+          "/rest/repeat-notification",
+          "/rest/continue-code",
+          "/rest/user/authentication-details/",
+          "/rest/user/whoami",
+          "/rest/saveLoginIp",
+          "/rest/deluxe-membership",
+          "/api/Deliverys",
+          "/rest/image-captcha/",
+          "/rest/wallet/balance",
+          "/rest/continue-code-findIt",
+          "/rest/captcha",
+          "/api/Quantitys",
+          "/api/Feedbacks",
+          "/api/Products",
+          "/api/SecurityQuestions",
+          "/api/Challenges",
+          "/api/Hints",
+          "/rest/memories",
+          "/rest/continue-code-fixIt"
+        ],
+        "ports": [
+          3000,
+          6379,
+          8080,
+          5432,
+          8000
         ],
         "technologies": [
           "Angular",
